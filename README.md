@@ -11,7 +11,8 @@ Al primo avvio apri **Impostazioni** (⌘,): nella scheda LIBRERIA scegli la car
 ## Come si usa
 
 - Scrivi nella ricerca, per esempio "narcissist blur": le parole possono corrispondere a titolo, artista o album, in qualsiasi ordine. La ricerca è limitata alla cartella selezionata nell'albero.
-- Con doppio clic o Invio su un brano lo carichi nel deck **Prossimo**, senza interrompere quello **In onda**.
+- Con doppio clic o Invio su un brano lo carichi nel deck **Prossimo** (deck B), senza interrompere quello **In onda** (deck A).
+- Con il tasto destro su un brano scegli **Carica nel Deck A** o **Carica nel Deck B**. Il deck A accetta un brano solo se è fermo o in pausa: il brano si prepara dall'inizio e parte con PLAY. Mentre suona, il deck A non accetta caricamenti, per non interrompere le casse.
 - **Anteprima** suona il Prossimo solo in cuffia. Cliccando sulla sua forma d'onda scegli da dove partirà.
 - **Crossfade** porta il Prossimo sulle casse con una dissolvenza (5 s di default). Se non fai niente, la dissolvenza parte da sola e termina insieme al brano in onda. Se il Prossimo è vuoto, il player si ferma.
 

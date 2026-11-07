@@ -393,22 +393,31 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(crate) fn load_row(&mut self, row: usize, cx: &mut Context<Self>) {
+    /// Double click and Enter load into deck B; the context menu can pick.
+    pub(crate) fn load_row(&mut self, row: usize, deck: Deck, cx: &mut Context<Self>) {
         self.cursor = Some(row);
-        self.load_selected(cx);
+        self.load_selected_to(deck, cx);
     }
 
     pub(crate) fn load_selected(&mut self, cx: &mut Context<Self>) {
+        self.load_selected_to(Deck::Next, cx);
+    }
+
+    fn load_selected_to(&mut self, deck: Deck, cx: &mut Context<Self>) {
         let Some(&ix) = self.cursor.and_then(|c| self.results.get(c)) else {
             return;
         };
         let t = &self.tracks[ix];
-        self.engine.send(Command::LoadNext(Slot {
+        let slot = Slot {
             id: t.id,
             path: t.path.clone(),
             duration: t.duration_secs,
             start: 0.0,
-        }));
+        };
+        self.engine.send(match deck {
+            Deck::OnAir => Command::LoadOnAir(slot),
+            Deck::Next => Command::LoadNext(slot),
+        });
         self.ensure_wave(t.id, cx);
         cx.notify();
     }

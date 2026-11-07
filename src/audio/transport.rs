@@ -76,6 +76,23 @@ impl Transport {
         self.stop_preview()
     }
 
+    /// Puts a track straight on deck A, ready from its start and paused.
+    /// Refused while A is playing or mixing: that would cut the speakers.
+    pub fn load_on_air(&mut self, slot: Slot) -> Option<Vec<Effect>> {
+        if self.incoming.is_some() || (self.playing && self.on_air.is_some()) {
+            return None;
+        }
+        self.playing = false;
+        self.on_air = Some(OnAir {
+            pos: slot.start,
+            slot: slot.clone(),
+        });
+        Some(vec![Effect::StartOnAir {
+            at: slot.start,
+            slot,
+        }])
+    }
+
     pub fn set_start(&mut self, secs: f32) -> Vec<Effect> {
         let Some(next) = &mut self.next else {
             return vec![];
@@ -351,6 +368,30 @@ mod tests {
         t.toggle_preview();
         assert_eq!(t.load_next(slot(2, 100.0, 0.0)), [Effect::StopPreview]);
         assert_eq!(t.next.as_ref().unwrap().id, 2);
+    }
+
+    #[test]
+    fn load_on_air_waits_for_play_and_never_cuts_a_playing_deck() {
+        let mut t = Transport::new(5.0);
+        let fx = t.load_on_air(slot(1, 100.0, 0.0)).unwrap();
+        assert_eq!(
+            fx,
+            [Effect::StartOnAir {
+                slot: slot(1, 100.0, 0.0),
+                at: 0.0
+            }]
+        );
+        assert!(!t.playing);
+        assert!(run(&mut t, 1.0).is_empty(), "loaded but not playing yet");
+        t.play();
+        assert!(t.playing && t.on_air.as_ref().unwrap().slot.id == 1);
+
+        assert!(t.load_on_air(slot(2, 100.0, 0.0)).is_none());
+        assert_eq!(t.on_air.as_ref().unwrap().slot.id, 1);
+
+        t.pause();
+        assert!(t.load_on_air(slot(2, 100.0, 0.0)).is_some());
+        assert_eq!(t.on_air.as_ref().unwrap().slot.id, 2);
     }
 
     #[test]

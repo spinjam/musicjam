@@ -8,6 +8,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px, uniform_list,
 };
 use gpui_component::input::Input;
+use gpui_component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::slider::{Slider, SliderState};
 
@@ -472,12 +473,34 @@ impl Workspace {
                         .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                             window.focus(&this.focus, cx);
                             if ev.click_count() >= 2 {
-                                this.load_row(row, cx);
+                                this.load_row(row, Deck::Next, cx);
                             } else {
                                 this.cursor = Some(row);
                                 cx.notify();
                             }
                         }))
+                        // A right click also selects the row the menu acts on.
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |this, _, _, cx| {
+                                this.cursor = Some(row);
+                                cx.notify();
+                            }),
+                        )
+                        .context_menu({
+                            let ws = cx.entity().downgrade();
+                            move |menu, _, _| {
+                                let load = |label: &'static str, deck: Deck| {
+                                    let ws = ws.clone();
+                                    PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                                        let _ =
+                                            ws.update(cx, |this, cx| this.load_row(row, deck, cx));
+                                    })
+                                };
+                                menu.item(load("Carica nel Deck A (casse)", Deck::OnAir))
+                                    .item(load("Carica nel Deck B (cuffia)", Deck::Next))
+                            }
+                        })
                         .into_any_element(),
                 )
             })

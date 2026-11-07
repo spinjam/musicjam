@@ -31,6 +31,8 @@ pub enum Command {
     },
     SetCrossfade(f32),
     LoadNext(Slot),
+    /// Straight onto deck A, paused; refused while A plays.
+    LoadOnAir(Slot),
     SetStart(f32),
     TogglePreview,
     Play,
@@ -210,14 +212,22 @@ impl Master {
                 vec![]
             }
             Command::LoadNext(mut slot) => {
-                // The real length beats the tags': it decides when the auto
-                // crossfade has to start.
-                if let Ok(src) = Source::open(&slot.path, 44_100, 0.0)
-                    && src.duration_secs() > 0.0
-                {
-                    slot.duration = src.duration_secs();
-                }
+                real_duration(&mut slot);
                 self.transport.load_next(slot)
+            }
+            Command::LoadOnAir(mut slot) => {
+                real_duration(&mut slot);
+                match self.transport.load_on_air(slot) {
+                    Some(fx) => fx,
+                    None => {
+                        self.emit(EngineEvent::Error(
+                            "Il deck A sta suonando: mettilo in pausa o fermalo prima di caricarci un brano, \
+                             oppure caricalo nel deck B e usa il crossfade."
+                                .into(),
+                        ));
+                        vec![]
+                    }
+                }
             }
             Command::SetStart(secs) => self.transport.set_start(secs),
             Command::TogglePreview => self.transport.toggle_preview(),
@@ -404,6 +414,16 @@ impl Master {
 
     fn emit(&self, ev: EngineEvent) {
         let _ = self.events.send(ev);
+    }
+}
+
+/// The real length beats the tags': it decides when the auto crossfade has
+/// to start.
+fn real_duration(slot: &mut Slot) {
+    if let Ok(src) = Source::open(&slot.path, 44_100, 0.0)
+        && src.duration_secs() > 0.0
+    {
+        slot.duration = src.duration_secs();
     }
 }
 
