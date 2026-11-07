@@ -25,6 +25,11 @@ Al primo avvio apri **Impostazioni** (⌘,) e scegli la cartella della musica, l
 | ⌘Invio | crossfade |
 | ⌥← ⌥→ (⇧ per passi fini) | sposta il punto di partenza di 1 s (0,1 s) |
 | ⌘R | aggiorna la libreria |
+| ⌘T | tema successivo |
+
+Le tre colonne si allargano e si stringono trascinando i bordi tra una e l'altra. Ogni deck ha il suo volume: VOL del deck A per le casse, VOL del deck B per la cuffia. Il segnale di prova suona sempre allo stesso livello, anche con il volume abbassato.
+
+Temi: Club (predefinito al buio), Neon, Acid, Booth, Vinyl, Ice, Gruvbox Dark, Catppuccin Mocha, Tokyo Night, Dracula, Daylight (predefinito con macOS chiaro), Gruvbox Light, Catppuccin Latte. Si scelgono nelle Impostazioni oppure si scorrono con ⌘T. Finché non ne scegli uno, il tema segue il chiaro/scuro di macOS.
 
 Impostazioni e indice stanno in `~/Library/Application Support/MusicJam/`.
 

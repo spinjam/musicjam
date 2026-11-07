@@ -11,6 +11,8 @@ publish = false
 [dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.9" }
 gpui-component = { version = "=0.8.0" }
+# IBM Plex Sans and Lilex, the faces filejam bundles.
+guic-gpui-assets = "=0.2.0"
 gpui_platform = { version = "=0.3.9", package = "gpui-pre-platform", features = ["font-kit"] }
 
 # Audio: cpal for CoreAudio output, symphonia (pure Rust) to decode, rubato to

@@ -22,6 +22,7 @@ use crate::library::search::Index;
 use crate::library::tree::{self, FolderNode};
 use crate::library::{Library, ScanReport, Track};
 use crate::settings::{self, Settings};
+use theme::{Appearance, Theme};
 
 pub const WAVE_BARS: usize = 160;
 const POLL_EVERY: Duration = Duration::from_millis(40);
@@ -34,6 +35,7 @@ pub enum Deck {
 
 pub struct Workspace {
     pub(crate) focus: FocusHandle,
+    theme: Theme,
     settings: Settings,
     /// Taken out while a rescan runs on a background thread.
     library: Option<Library>,
@@ -91,11 +93,18 @@ impl Workspace {
         )
         .detach();
         search.update(cx, |s, cx| s.focus(window, cx));
-        // The input is gpui-component's and follows its theme, not ours.
-        gpui_component::Theme::sync_system_appearance(Some(window), cx);
-        cx.observe_window_appearance(window, |_, window, cx| {
-            gpui_component::Theme::sync_system_appearance(Some(window), cx);
-            cx.notify();
+        let theme = theme::find(
+            settings.theme.as_deref(),
+            Appearance::of_system(window.appearance()),
+        );
+        theme.apply_to_components(cx);
+        // With no theme chosen, follow the system between light and dark.
+        cx.observe_window_appearance(window, |this: &mut Self, window, cx| {
+            if this.settings.theme.is_none() {
+                this.theme = theme::find(None, Appearance::of_system(window.appearance()));
+                this.theme.apply_to_components(cx);
+                cx.notify();
+            }
         })
         .detach();
 
@@ -115,6 +124,7 @@ impl Workspace {
 
         let mut this = Self {
             focus: cx.focus_handle(),
+            theme,
             settings,
             library,
             scanning: false,
@@ -177,10 +187,10 @@ impl Workspace {
                     self.alert("Uscita casse scollegata: riproduzione fermata.")
                 }
                 EngineEvent::DeviceMissing(Role::Master) => {
-                    self.alert("Uscita casse non disponibile: sceglila nelle Impostazioni (⌘,).")
+                    self.alert("Uscita casse non disponibile. Sceglila in Impostazioni.")
                 }
                 EngineEvent::DeviceMissing(Role::Cue) => {
-                    self.alert("Uscita cuffia non disponibile: sceglila nelle Impostazioni (⌘,).")
+                    self.alert("Uscita cuffia non disponibile. Sceglila in Impostazioni.")
                 }
                 EngineEvent::Error(e) => self.alert(e),
             }
@@ -456,6 +466,23 @@ impl Workspace {
             }
         })
         .detach();
+    }
+
+    pub(crate) fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
+        self.theme = theme;
+        self.settings.theme = Some(theme.name.to_string());
+        theme.apply_to_components(cx);
+        self.save_settings();
+        cx.notify();
+    }
+
+    pub(crate) fn cycle_theme(&mut self, cx: &mut Context<Self>) {
+        let all = Theme::all();
+        let at = all
+            .iter()
+            .position(|t| t.name == self.theme.name)
+            .unwrap_or(0);
+        self.set_theme(all[(at + 1) % all.len()], cx);
     }
 
     /// A 0..100 slider driving one output's volume. It moves the sound while

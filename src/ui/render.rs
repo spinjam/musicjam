@@ -3,33 +3,95 @@ use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, ClickEvent, Context, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    div, px, uniform_list,
+    AnyElement, ClickEvent, Context, Div, ElementId, Entity, FontWeight, Hsla, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Render, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Window, div, px, uniform_list,
 };
 use gpui_component::input::Input;
 use gpui_component::resizable::{h_resizable, resizable_panel};
-use gpui_component::slider::Slider;
+use gpui_component::slider::{Slider, SliderState};
 
-use super::theme::{Palette, palette};
+use super::theme::{CHROME_FONT, DISPLAY_FONT, Palette, RADIUS, Theme};
 use super::{Deck, WAVE_BARS, Workspace};
 use crate::actions::*;
 use crate::audio::engine::{Command, DeckInfo, Role};
 
 const TREE_WIDTH: f32 = 230.;
 const TREE_RANGE: (f32, f32) = (150., 480.);
-const DECKS_WIDTH: f32 = 360.;
-const DECKS_RANGE: (f32, f32) = (300., 620.);
+const DECKS_WIDTH: f32 = 380.;
+const DECKS_RANGE: (f32, f32) = (320., 640.);
 const ROW_HEIGHT: f32 = 30.;
+const WAVE_HEIGHT: f32 = 64.;
 
 fn clock(secs: f32) -> String {
     let s = secs.max(0.0) as u32;
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+/// Small caps of the booth: every label reads like it is printed on a mixer.
+fn caps(text: impl Into<SharedString>, color: Hsla) -> Div {
+    div()
+        .font_family(DISPLAY_FONT)
+        .text_size(px(10.5))
+        .font_weight(FontWeight::BOLD)
+        .text_color(color)
+        .child(text.into())
+}
+
+fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, p: Palette) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .px_3()
+        .h(px(30.))
+        .rounded(px(RADIUS))
+        .border_1()
+        .border_color(p.border)
+        .bg(p.panel)
+        .font_family(DISPLAY_FONT)
+        .text_size(px(11.5))
+        .font_weight(FontWeight::BOLD)
+        .cursor_pointer()
+        .hover(|s| s.border_color(p.text))
+        .active(|s| s.bg(p.selected))
+        .child(label.into())
+}
+
+fn filled(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    color: Hsla,
+    p: Palette,
+) -> Stateful<Div> {
+    button(id, label, p)
+        .bg(color)
+        .border_color(color)
+        .text_color(p.on_accent)
+}
+
+fn volume_row(slider: &Entity<SliderState>, level: f32, p: Palette) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(caps("VOL", p.muted).w(px(30.)))
+        .child(div().flex_1().child(Slider::new(slider)))
+        .child(
+            div()
+                .w(px(40.))
+                .text_right()
+                .font_family(DISPLAY_FONT)
+                .text_size(px(11.5))
+                .text_color(p.muted)
+                .child(format!("{:.0}%", level * 100.)),
+        )
+}
+
 impl Render for Workspace {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = palette(window.appearance());
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = self.theme.palette();
         div()
             .id("workspace")
             .key_context(WORKSPACE)
@@ -39,6 +101,7 @@ impl Render for Workspace {
             .flex()
             .bg(p.bg)
             .text_color(p.text)
+            .font_family(CHROME_FONT)
             .text_size(px(13.))
             .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
             .on_action(cx.listener(|this, _: &OpenSettings, _, cx| this.open_settings(cx)))
@@ -67,6 +130,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NudgeBackFine, _, _| this.nudge(-0.1)))
             .on_action(cx.listener(|this, _: &NudgeForwardFine, _, _| this.nudge(0.1)))
             .on_action(cx.listener(|this, _: &Rescan, _, cx| this.rescan(cx)))
+            .on_action(cx.listener(|this, _: &CycleTheme, _, cx| this.cycle_theme(cx)))
             .child(
                 h_resizable("columns")
                     .with_state(&self.split)
@@ -88,194 +152,131 @@ impl Render for Workspace {
     }
 }
 
-fn button(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    p: Palette,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .px_3()
-        .py_1()
-        .rounded_md()
-        .border_1()
-        .border_color(p.border)
-        .bg(p.card)
-        .cursor_pointer()
-        .hover(|s| s.bg(p.selected))
-        .child(label.into())
-}
-
-fn primary(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    color: Hsla,
-    p: Palette,
-) -> gpui::Stateful<gpui::Div> {
-    button(id, label, p)
-        .bg(color)
-        .border_color(color)
-        .text_color(p.on_accent)
-        .font_weight(FontWeight::SEMIBOLD)
-}
-
-fn label(text: impl Into<SharedString>, color: Hsla) -> gpui::Div {
-    div()
-        .text_size(px(10.5))
-        .font_weight(FontWeight::BOLD)
-        .text_color(color)
-        .child(text.into())
-}
-
-fn volume_row(
-    slider: &gpui::Entity<gpui_component::slider::SliderState>,
-    level: f32,
-    p: Palette,
-) -> gpui::Div {
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .text_size(px(11.5))
-        .text_color(p.muted)
-        .child(div().w(px(50.)).child("Volume"))
-        .child(div().flex_1().child(Slider::new(slider)))
-        .child(
-            div()
-                .w(px(38.))
-                .text_right()
-                .child(format!("{:.0}%", level * 100.)),
-        )
-}
-
 impl Workspace {
     fn render_tree(&self, p: Palette, cx: &mut Context<Self>) -> AnyElement {
-        let mut col = div()
+        let header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .px_3()
+            .h(px(44.))
+            .border_b_1()
+            .border_color(p.border)
+            .child(caps("LIBRERIA", p.muted))
+            .child(
+                button("rescan", if self.scanning { "SCAN…" } else { "↻ SCAN" }, p)
+                    .h(px(24.))
+                    .px_2()
+                    .text_size(px(10.5))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.rescan(cx))),
+            );
+        let rows: Vec<AnyElement> = self
+            .tree
+            .as_ref()
+            .map(|tree| {
+                tree.visible_rows(&self.expanded)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (depth, node))| {
+                        let selected = match &self.scope {
+                            Some(s) => *s == node.path,
+                            None => depth == 0,
+                        };
+                        let open = self.expanded.contains(&node.path);
+                        let arrow = if node.children.is_empty() {
+                            " "
+                        } else if open {
+                            "▾"
+                        } else {
+                            "▸"
+                        };
+                        let path = node.path.clone();
+                        let toggle = node.path.clone();
+                        div()
+                            .id(("folder", i))
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .pl(px(10. + depth as f32 * 14.))
+                            .pr_2()
+                            .h(px(26.))
+                            .border_l_2()
+                            .border_color(if selected {
+                                p.cue
+                            } else {
+                                gpui::transparent_black()
+                            })
+                            .cursor_pointer()
+                            .hover(|s| s.bg(p.card))
+                            .when(selected, |d| {
+                                d.bg(p.selected).font_weight(FontWeight::SEMIBOLD)
+                            })
+                            .child(
+                                div()
+                                    .id(("arrow", i))
+                                    .w(px(12.))
+                                    .text_color(p.muted)
+                                    .child(arrow)
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        cx.stop_propagation();
+                                        this.toggle_folder(toggle.clone(), cx);
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .child(node.name.clone()),
+                            )
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.select_folder(path.clone(), cx)
+                            }))
+                            .into_any_element()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        div()
             .size_full()
             .flex()
             .flex_col()
             .bg(p.panel)
-            .border_r_1()
-            .border_color(p.border);
-        col = col.child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .px_3()
-                .py_2()
-                .child(label("LIBRERIA", p.muted))
-                .child(
-                    button(
-                        "rescan",
-                        if self.scanning {
-                            "Aggiorno…"
-                        } else {
-                            "Aggiorna"
-                        },
-                        p,
-                    )
-                    .text_size(px(11.))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.rescan(cx))),
-                ),
-        );
-        let Some(tree) = &self.tree else {
-            return col.into_any_element();
-        };
-        let rows: Vec<AnyElement> = tree
-            .visible_rows(&self.expanded)
-            .into_iter()
-            .enumerate()
-            .map(|(i, (depth, node))| {
-                let is_root = depth == 0;
-                let selected = match &self.scope {
-                    Some(s) => *s == node.path,
-                    None => is_root,
-                };
-                let open = self.expanded.contains(&node.path);
-                let arrow = if node.children.is_empty() {
-                    " "
-                } else if open {
-                    "▾"
-                } else {
-                    "▸"
-                };
-                let path = node.path.clone();
-                let toggle_path = node.path.clone();
+            .child(header)
+            .child(
                 div()
-                    .id(("folder", i))
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .pl(px(8. + depth as f32 * 14.))
-                    .pr_2()
-                    .py(px(3.))
-                    .mx_1()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .when(selected, |d| {
-                        d.bg(p.selected).font_weight(FontWeight::SEMIBOLD)
-                    })
-                    .child(
-                        div()
-                            .id(("arrow", i))
-                            .w(px(12.))
-                            .text_color(p.muted)
-                            .child(arrow)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                cx.stop_propagation();
-                                this.toggle_folder(toggle_path.clone(), cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(node.name.clone()),
-                    )
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.select_folder(path.clone(), cx)
-                    }))
-                    .into_any_element()
-            })
-            .collect();
-        col.child(
-            div()
-                .id("tree")
-                .flex_1()
-                .overflow_y_scroll()
-                .pb_2()
-                .children(rows),
-        )
-        .into_any_element()
+                    .id("tree")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .py_1()
+                    .children(rows),
+            )
+            .into_any_element()
     }
 
     fn render_list(&self, p: Palette, cx: &mut Context<Self>) -> AnyElement {
         let crumb: SharedString = match (&self.scope, &self.settings.library_root) {
-            (Some(s), Some(r)) => s.strip_prefix(r).map_or_else(
-                |_| s.display().to_string(),
-                |rel| {
-                    let name = r
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    format!(
-                        "{name} › {}",
-                        rel.iter()
-                            .map(|c| c.to_string_lossy())
-                            .collect::<Vec<_>>()
-                            .join(" › ")
-                    )
-                },
-            ),
+            (Some(s), Some(r)) => {
+                let name = r
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let rel = s.strip_prefix(r).map(|rel| {
+                    rel.iter()
+                        .map(|c| c.to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join(" / ")
+                });
+                format!("{name} / {}", rel.unwrap_or_default())
+            }
             (None, Some(r)) => r
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             _ => String::new(),
         }
+        .to_uppercase()
         .into();
         let count = self.results.len();
         let body: AnyElement = if self.settings.library_root.is_none() {
@@ -289,7 +290,7 @@ impl Workspace {
                 .text_color(p.muted)
                 .child("Scegli la cartella dove tieni la musica (MP3, FLAC, WAV).")
                 .child(
-                    primary("pick-empty", "Scegli cartella…", p.cue, p)
+                    filled("pick-empty", "SCEGLI CARTELLA…", p.cue, p)
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick_library(cx))),
                 )
                 .into_any_element()
@@ -320,19 +321,31 @@ impl Workspace {
             .flex_1()
             .into_any_element()
         };
+        let columns = div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .h(px(26.))
+            .bg(p.panel)
+            .border_b_1()
+            .border_color(p.border)
+            .child(div().w(px(14.)))
+            .child(caps("TITOLO", p.muted).flex_1())
+            .child(caps("ARTISTA · ALBUM", p.muted).flex_1())
+            .child(caps("TEMPO", p.muted).w(px(48.)).text_right());
         div()
-            .flex_1()
-            .w_full()
-            .h_full()
+            .size_full()
             .flex()
             .flex_col()
             .bg(p.card)
             .child(
                 div()
                     .key_context("Search")
-                    .p_3()
+                    .px_3()
+                    .pt_2()
                     .pb_1()
-                    .child(Input::new(&self.search).text_size(px(14.))),
+                    .child(Input::new(&self.search).text_size(px(15.))),
             )
             .child(
                 div()
@@ -340,12 +353,13 @@ impl Workspace {
                     .justify_between()
                     .px_3()
                     .pb_2()
-                    .text_size(px(11.5))
-                    .text_color(p.muted)
-                    .child(crumb)
-                    .child(format!("{count} brani · doppio clic o Invio → Prossimo")),
+                    .child(caps(crumb, p.muted))
+                    .child(caps(
+                        format!("{count} BRANI · DOPPIO CLIC / INVIO → DECK B"),
+                        p.muted,
+                    )),
             )
-            .child(div().h(px(1.)).bg(p.border))
+            .child(columns)
             .child(body)
             .into_any_element()
     }
@@ -357,17 +371,22 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let next_id = self.snapshot.next.as_ref().map(|d| d.id);
-        let air_id = self.snapshot.on_air.as_ref().map(|d| d.id);
+        let air_id = self
+            .snapshot
+            .incoming
+            .as_ref()
+            .or(self.snapshot.on_air.as_ref())
+            .map(|d| d.id);
         range
             .filter_map(|row| {
                 let t = self.tracks.get(*self.results.get(row)?)?;
                 let selected = self.cursor == Some(row);
-                let marker = if Some(t.id) == air_id {
-                    Some(("●", p.live))
+                let (marker, tint) = if Some(t.id) == air_id {
+                    ("A", Some(p.live))
                 } else if Some(t.id) == next_id {
-                    Some(("◐", p.cue))
+                    ("B", Some(p.cue))
                 } else {
-                    None
+                    ("", None)
                 };
                 Some(
                     div()
@@ -380,12 +399,27 @@ impl Workspace {
                         .px_3()
                         .border_b_1()
                         .border_color(p.border)
+                        .relative()
                         .cursor_pointer()
-                        .when(selected, |d| d.bg(p.selected))
+                        .hover(|s| s.bg(p.panel))
+                        .when(selected, |d| {
+                            d.bg(p.selected).child(
+                                div()
+                                    .absolute()
+                                    .left_0()
+                                    .top_0()
+                                    .w(px(3.))
+                                    .h_full()
+                                    .bg(p.cue),
+                            )
+                        })
                         .child(
                             div()
-                                .w(px(12.))
-                                .when_some(marker, |d, (m, c)| d.text_color(c).child(m)),
+                                .w(px(14.))
+                                .font_family(DISPLAY_FONT)
+                                .font_weight(FontWeight::BOLD)
+                                .when_some(tint, |d, c| d.text_color(c))
+                                .child(marker),
                         )
                         .child(
                             div()
@@ -395,6 +429,7 @@ impl Workspace {
                                 .whitespace_nowrap()
                                 .text_ellipsis()
                                 .font_weight(FontWeight::SEMIBOLD)
+                                .when_some(tint, |d, c| d.text_color(c))
                                 .child(t.title.clone()),
                         )
                         .child(
@@ -413,8 +448,10 @@ impl Workspace {
                         )
                         .child(
                             div()
-                                .w(px(44.))
+                                .w(px(48.))
                                 .text_right()
+                                .font_family(DISPLAY_FONT)
+                                .text_size(px(12.))
                                 .text_color(p.muted)
                                 .child(clock(t.duration_secs)),
                         )
@@ -445,11 +482,14 @@ impl Workspace {
                     .flex()
                     .gap_2()
                     .p_2()
-                    .rounded_md()
+                    .rounded(px(RADIUS))
                     .bg(p.warn_bg)
+                    .border_l_2()
+                    .border_color(p.live)
                     .text_size(px(12.))
+                    .cursor_pointer()
                     .child(div().flex_1().min_w_0().child(a.clone()))
-                    .child(div().text_color(p.muted).cursor_pointer().child("✕"))
+                    .child(div().text_color(p.muted).child("✕"))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         if i < this.alerts.len() {
                             this.alerts.remove(i);
@@ -460,58 +500,66 @@ impl Workspace {
             })
             .collect();
 
-        // During a crossfade the incoming track is shown on air, fading in.
+        // During a crossfade, deck A shows the track fading in.
         let air = s.incoming.as_ref().or(s.on_air.as_ref());
-        let air_label = if s.incoming.is_some() {
-            "● IN ONDA · CASSE · crossfade…"
-        } else if s.on_air.is_some() && !s.playing {
-            "● IN ONDA · CASSE · in pausa"
+        let air_state = if s.incoming.is_some() {
+            "MIX"
+        } else if s.on_air.is_some() && s.playing {
+            "PLAY"
+        } else if s.on_air.is_some() {
+            "PAUSA"
         } else {
-            "● IN ONDA · CASSE"
+            "—"
         };
-        let on_air = self
-            .render_deck(Deck::OnAir, air, air_label, p.live, None, p, cx)
+        let playing = s.playing && s.on_air.is_some();
+        let deck_a = self
+            .render_deck(
+                Deck::OnAir,
+                air,
+                ("A", "IN ONDA · CASSE", air_state),
+                p.live,
+                None,
+                p,
+                cx,
+            )
             .child(
                 div()
                     .flex()
                     .gap_2()
+                    .px_3()
                     .child(
-                        button(
+                        filled(
                             "playpause",
-                            if s.playing && s.on_air.is_some() {
-                                "Pausa"
-                            } else {
-                                "Play"
-                            },
+                            if playing { "❚❚ PAUSA" } else { "▶ PLAY" },
+                            p.live,
                             p,
                         )
+                        .flex_1()
+                        .h(px(38.))
                         .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.play_pause())),
                     )
-                    .child(button("stop", "Stop", p).on_click(
+                    .child(button("stop", "■ STOP", p).h(px(38.)).on_click(
                         cx.listener(|this, _: &ClickEvent, _, _| this.send(Command::Stop)),
                     )),
-            );
-
-        let fade = div().flex().justify_center().child(
-            primary(
-                "crossfade",
-                format!("↑ Crossfade {:.0} s", self.settings.crossfade_secs),
-                p.cue,
-                p,
             )
-            .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(Command::Crossfade))),
-        );
+            .child(div().p_3().child(volume_row(
+                &self.master_volume,
+                self.settings.master_volume,
+                p,
+            )));
 
-        let next_label = if s.previewing {
-            "◐ PROSSIMO · CUFFIA · in ascolto"
+        let next_state = if s.previewing {
+            "CUE ●"
+        } else if s.next.is_some() {
+            "PRONTO"
         } else {
-            "◐ PROSSIMO · CUFFIA"
+            "—"
         };
-        let next = self
+        let deck_b = self
             .render_deck(
                 Deck::Next,
                 s.next.as_ref(),
-                next_label,
+                ("B", "PROSSIMO · CUFFIA", next_state),
                 p.cue,
                 self.preview_pos,
                 p,
@@ -521,57 +569,127 @@ impl Workspace {
                 div()
                     .flex()
                     .gap_2()
-                    .items_center()
+                    .px_3()
                     .child(
-                        button(
-                            "preview",
-                            if s.previewing {
-                                "■ Ferma anteprima"
-                            } else {
-                                "▶ Anteprima"
-                            },
-                            p,
-                        )
+                        if s.previewing {
+                            filled("preview", "◉ CUE ON", p.cue, p)
+                        } else {
+                            button("preview", "◎ CUE", p)
+                        }
+                        .flex_1()
+                        .h(px(38.))
                         .on_click(cx.listener(
                             |this, _: &ClickEvent, _, _| this.send(Command::TogglePreview),
                         )),
                     )
                     .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(p.muted)
-                            .child("clic sull'onda = punto di partenza"),
+                        button("nudge-back", "◀ 1S", p)
+                            .h(px(38.))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.nudge(-1.0))),
+                    )
+                    .child(
+                        button("nudge-fwd", "1S ▶", p)
+                            .h(px(38.))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.nudge(1.0))),
                     ),
+            )
+            .child(
+                div()
+                    .p_3()
+                    .child(volume_row(&self.cue_volume, self.settings.cue_volume, p)),
             );
 
         let outputs = format!(
-            "Casse: {} · Cuffia: {}",
+            "CASSE: {}  ·  CUFFIA: {}",
             self.settings.master_device.as_deref().unwrap_or("—"),
             self.settings.cue_device.as_deref().unwrap_or("—")
         );
         div()
+            .id("decks")
             .size_full()
             .flex()
             .flex_col()
             .gap_3()
             .p_3()
-            .bg(p.panel)
-            .border_l_1()
-            .border_color(p.border)
+            .bg(p.bg)
+            .overflow_y_scroll()
             .children(alerts)
-            .child(on_air.child(volume_row(
-                &self.master_volume,
-                self.settings.master_volume,
-                p,
-            )))
-            .child(fade)
-            .child(next.child(volume_row(&self.cue_volume, self.settings.cue_volume, p)))
+            .child(deck_a)
+            .child(self.render_crossfader(p, cx))
+            .child(deck_b)
             .child(div().flex_1())
-            .child(div().text_size(px(11.)).text_color(p.muted).child(outputs))
+            .child(caps(outputs, p.muted))
             .child(
-                button("settings", "Impostazioni…", p)
-                    .text_size(px(12.))
+                button("settings", "⚙ IMPOSTAZIONI", p)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx))),
+            )
+            .into_any_element()
+    }
+
+    /// The crossfader: where the mix sits between A and B, and the button
+    /// that throws it.
+    fn render_crossfader(&self, p: Palette, cx: &mut Context<Self>) -> AnyElement {
+        let fade = self.snapshot.fade;
+        // At rest the fader sits on A; during a crossfade it travels to B.
+        let at = fade.unwrap_or(0.0);
+        let auto_in = self
+            .snapshot
+            .on_air
+            .as_ref()
+            .filter(|_| self.snapshot.next.is_some())
+            .map(|on| (on.duration - on.pos - self.settings.crossfade_secs).max(0.0));
+        let hint = match (fade, auto_in) {
+            (Some(_), _) => "IN CORSO…".to_string(),
+            (None, Some(t)) => format!("AUTO TRA {}", clock(t)),
+            _ => format!("{:.0} S", self.settings.crossfade_secs),
+        };
+        let track = div()
+            .relative()
+            .flex_1()
+            .h(px(10.))
+            .rounded(px(RADIUS))
+            .bg(p.panel)
+            .border_1()
+            .border_color(p.border)
+            .child(
+                div()
+                    .absolute()
+                    .top(px(-6.))
+                    .left(gpui::relative(at * 0.94))
+                    .w(gpui::relative(0.06))
+                    .h(px(20.))
+                    .rounded(px(RADIUS))
+                    .bg(if fade.is_some() { p.cue } else { p.text }),
+            );
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_3()
+            .rounded(px(RADIUS))
+            .border_1()
+            .border_color(p.border)
+            .bg(p.card)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(caps("A", p.live))
+                    .child(track)
+                    .child(caps("B", p.cue)),
+            )
+            .child(
+                filled(
+                    "crossfade",
+                    format!("CROSSFADE A → B  ·  {hint}"),
+                    p.text,
+                    p,
+                )
+                .h(px(40.))
+                .text_size(px(12.5))
+                .text_color(p.bg)
+                .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(Command::Crossfade))),
             )
             .into_any_element()
     }
@@ -581,86 +699,73 @@ impl Workspace {
         &self,
         deck: Deck,
         info: Option<&DeckInfo>,
-        title: &'static str,
+        (letter, title, state): (&'static str, &'static str, &'static str),
         color: Hsla,
         preview: Option<f32>,
         p: Palette,
         cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        let mut card = div()
+    ) -> Div {
+        let header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .px_3()
+            .h(px(26.))
+            .bg(color)
+            .text_color(p.on_accent)
+            .font_family(DISPLAY_FONT)
+            .font_weight(FontWeight::BOLD)
+            .text_size(px(11.))
+            .child(format!("DECK {letter} · {title}"))
+            .child(state);
+        let card = div()
             .flex()
             .flex_col()
-            .gap_2()
-            .p_3()
-            .rounded_lg()
+            .rounded(px(RADIUS))
             .border_1()
-            .border_color(p.border)
+            .border_color(color)
             .bg(p.card)
-            .child(label(title, color));
+            .child(header);
+        let body = div().flex().flex_col().gap_3().p_3();
         let Some(info) = info else {
             let empty = match deck {
                 Deck::OnAir => "Niente in onda.",
                 Deck::Next => "Doppio clic su un brano per caricarlo qui.",
             };
-            return card.child(div().text_color(p.muted).py_3().child(empty));
+            return card.child(body.child(div().text_color(p.muted).py_4().child(empty)));
         };
         let track = self.track(info.id);
         let title = track.map_or_else(|| "?".to_string(), |t| t.title.clone());
         let artist = track.map(|t| t.artist.clone()).unwrap_or_default();
-        let peaks = self
-            .waves
-            .get(&info.id)
-            .cloned()
-            .unwrap_or_else(|| Arc::new(vec![0.05; WAVE_BARS]));
         let dur = info.duration.max(0.001);
-        let (played_to, marker) = match deck {
-            Deck::OnAir => (info.pos / dur, None),
-            Deck::Next => (preview.map_or(0.0, |pos| pos / dur), Some(info.start / dur)),
+        let (big, small) = match deck {
+            Deck::OnAir => (
+                format!("-{}", clock(info.duration - info.pos)),
+                format!("{} / {}", clock(info.pos), clock(info.duration)),
+            ),
+            Deck::Next => (
+                format!("▸{}", clock(info.start)),
+                preview.map_or_else(
+                    || format!("DURATA {}", clock(info.duration)),
+                    |pos| format!("CUE {}", clock(pos)),
+                ),
+            ),
         };
-        let marker_bar = marker.map(|m| ((m * WAVE_BARS as f32) as usize).min(WAVE_BARS - 1));
-        let bars: Vec<AnyElement> = peaks
-            .iter()
-            .enumerate()
-            .map(|(i, &peak)| {
-                let frac = i as f32 / WAVE_BARS as f32;
-                let lit = frac < played_to;
-                let h = (peak.clamp(0.0, 1.0) * 40.).max(2.);
-                let id_base = if deck == Deck::OnAir {
-                    "air-bar"
-                } else {
-                    "next-bar"
-                };
-                div()
-                    .id((id_base, i))
-                    .flex_1()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .cursor_pointer()
-                    .child(div().w_full().h(px(h)).bg(if lit { color } else { p.wave }))
-                    .when(marker_bar == Some(i), |d| {
-                        d.child(div().absolute().w(px(2.)).h_full().bg(color))
-                    })
-                    .relative()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, _| this.click_wave(deck, i)),
-                    )
-                    .into_any_element()
-            })
-            .collect();
-        let right = match deck {
-            Deck::OnAir => format!("{} / {}", clock(info.pos), clock(info.duration)),
-            Deck::Next => format!("parte da {}", clock(info.start)),
-        };
-        card = card
+        let readout = div()
+            .flex()
+            .items_end()
+            .justify_between()
+            .gap_2()
             .child(
                 div()
                     .flex()
                     .flex_col()
+                    .min_w_0()
+                    .flex_1()
                     .child(
                         div()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::BOLD)
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .text_ellipsis()
@@ -668,16 +773,93 @@ impl Workspace {
                     )
                     .child(div().text_color(p.muted).text_size(px(12.)).child(artist)),
             )
-            .child(div().h(px(44.)).flex().gap(px(1.)).children(bars))
             .child(
                 div()
                     .flex()
-                    .justify_end()
-                    .text_size(px(11.5))
-                    .text_color(p.muted)
-                    .child(right),
+                    .flex_col()
+                    .items_end()
+                    .child(
+                        div()
+                            .font_family(DISPLAY_FONT)
+                            .font_weight(FontWeight::BOLD)
+                            .text_size(px(26.))
+                            .line_height(px(28.))
+                            .text_color(color)
+                            .child(big),
+                    )
+                    .child(caps(small, p.muted)),
             );
-        card
+
+        let peaks = self
+            .waves
+            .get(&info.id)
+            .cloned()
+            .unwrap_or_else(|| Arc::new(vec![0.05; WAVE_BARS]));
+        let (head, marker) = match deck {
+            Deck::OnAir => (Some(info.pos / dur), None),
+            Deck::Next => (preview.map(|pos| pos / dur), Some(info.start / dur)),
+        };
+        let bar_of = |f: f32| ((f * WAVE_BARS as f32) as usize).min(WAVE_BARS - 1);
+        let head_bar = head.map(bar_of);
+        let marker_bar = marker.map(bar_of);
+        let (lit, dim) = match deck {
+            Deck::OnAir => (p.live, p.live_dim),
+            Deck::Next => (p.cue, p.cue_dim),
+        };
+        let bars: Vec<AnyElement> = peaks
+            .iter()
+            .enumerate()
+            .map(|(i, &peak)| {
+                // Played part bright, the rest dim; on deck B what comes
+                // before the start point is skipped, so it stays grey.
+                let fill = match deck {
+                    Deck::OnAir if head_bar.is_some_and(|h| i <= h) => lit,
+                    Deck::OnAir => dim,
+                    Deck::Next if marker_bar.is_some_and(|m| i < m) => p.wave,
+                    Deck::Next if head_bar.is_some_and(|h| i <= h) => lit,
+                    Deck::Next => dim,
+                };
+                let h = (peak.clamp(0.0, 1.0) * WAVE_HEIGHT).max(2.);
+                let id = if deck == Deck::OnAir {
+                    "air-bar"
+                } else {
+                    "next-bar"
+                };
+                div()
+                    .id((id, i))
+                    .relative()
+                    .flex_1()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .cursor_pointer()
+                    .child(div().w_full().h(px(h)).bg(fill))
+                    .when(head_bar == Some(i), |d| {
+                        d.child(div().absolute().left_0().w(px(2.)).h_full().bg(p.text))
+                    })
+                    .when(marker_bar == Some(i), |d| {
+                        d.child(div().absolute().left_0().w(px(3.)).h_full().bg(color))
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, _| this.click_wave(deck, i)),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+        let wave = div()
+            .h(px(WAVE_HEIGHT + 8.))
+            .px_1()
+            .flex()
+            .gap(px(1.))
+            .bg(p.bg)
+            .rounded(px(RADIUS))
+            .children(bars);
+        let help = match deck {
+            Deck::OnAir => "CLIC SULL'ONDA = SALTA",
+            Deck::Next => "CLIC SULL'ONDA = PUNTO DI PARTENZA · ⌥← ⌥→",
+        };
+        card.child(body.child(readout).child(wave).child(caps(help, p.muted)))
     }
 
     fn render_settings(&self, p: Palette, cx: &mut Context<Self>) -> AnyElement {
@@ -698,8 +880,9 @@ impl Workspace {
                         .id(SharedString::from(format!("dev-{tag}-{i}")))
                         .px_2()
                         .py_1()
-                        .rounded_sm()
+                        .rounded(px(RADIUS))
                         .cursor_pointer()
+                        .hover(|s| s.bg(p.panel))
                         .when(on, |d| d.bg(p.selected).font_weight(FontWeight::SEMIBOLD))
                         .child(format!("{} {name}", if on { "◉" } else { "○" }))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -726,32 +909,86 @@ impl Workspace {
                 .children(rows)
                 .into_any_element()
         };
-        let section =
-            |title: &'static str, test_id: &'static str, role: Role, cx: &mut Context<Self>| {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                            .child(button(test_id, "Prova", p).text_size(px(11.)).on_click(
-                                cx.listener(move |this, _: &ClickEvent, _, _| {
+        let section = |title: &'static str,
+                       test_id: &'static str,
+                       role: Role,
+                       color: Hsla,
+                       cx: &mut Context<Self>| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .justify_between()
+                        .items_center()
+                        .child(caps(title, color))
+                        .child(
+                            button(test_id, "▶ PROVA", p)
+                                .h(px(24.))
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, _| {
                                     this.send(Command::TestTone(role))
-                                }),
-                            )),
-                    )
-                    .child(device_list(role, cx))
-            };
+                                })),
+                        ),
+                )
+                .child(device_list(role, cx))
+        };
         let same = self.settings.master_device.is_some()
             && self.settings.master_device == self.settings.cue_device;
         let root = self.settings.library_root.as_ref().map_or_else(
             || "Nessuna cartella scelta".to_string(),
             |r| r.display().to_string(),
         );
+
+        let themes: Vec<AnyElement> = Theme::all()
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let tp = t.palette();
+                let on = t.name == self.theme.name;
+                div()
+                    .id(("theme", i))
+                    .w(px(124.))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .p_1()
+                    .rounded(px(RADIUS))
+                    .border_2()
+                    .border_color(if on { p.text } else { p.border })
+                    .cursor_pointer()
+                    .hover(|s| s.border_color(p.muted))
+                    .child(
+                        div()
+                            .h(px(38.))
+                            .flex()
+                            .items_end()
+                            .gap(px(3.))
+                            .p_1()
+                            .bg(tp.bg)
+                            .children([0.5, 0.8, 1.0, 0.6, 0.9, 0.4].iter().enumerate().map(
+                                |(j, h)| {
+                                    div().flex_1().h(px(28. * h)).bg(if j < 3 {
+                                        tp.live
+                                    } else {
+                                        tp.cue
+                                    })
+                                },
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(t.name),
+                    )
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_theme(t, cx)))
+                    .into_any_element()
+            })
+            .collect();
 
         div()
             .id("settings-backdrop")
@@ -760,70 +997,87 @@ impl Workspace {
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui::hsla(0., 0., 0., 0.35))
+            .bg(gpui::hsla(0., 0., 0., 0.55))
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.stop_propagation()))
             .child(
                 div()
                     .id("settings")
-                    .w(px(520.))
-                    .max_h(px(640.))
+                    .w(px(600.))
+                    .max_h(px(720.))
                     .overflow_y_scroll()
                     .flex()
                     .flex_col()
-                    .gap_4()
+                    .gap_5()
                     .p_5()
-                    .rounded_lg()
+                    .rounded(px(RADIUS))
                     .bg(p.card)
                     .border_1()
                     .border_color(p.border)
-                    .child(div().text_size(px(18.)).font_weight(FontWeight::BOLD).child("Impostazioni"))
+                    .child(
+                        div()
+                            .font_family(DISPLAY_FONT)
+                            .text_size(px(18.))
+                            .font_weight(FontWeight::BOLD)
+                            .child("IMPOSTAZIONI"),
+                    )
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child("Cartella della musica"))
-                            .child(div().text_color(p.muted).child(root))
-                            .child(
-                                div().flex().child(
-                                    button("pick", "Scegli cartella…", p)
-                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick_library(cx))),
-                                ),
-                            ),
+                            .child(caps("CARTELLA DELLA MUSICA", p.muted))
+                            .child(div().child(root))
+                            .child(div().flex().child(button("pick", "SCEGLI CARTELLA…", p).on_click(
+                                cx.listener(|this, _: &ClickEvent, _, cx| this.pick_library(cx)),
+                            ))),
                     )
-                    .child(section("Casse (Master)", "test-master", Role::Master, cx))
-                    .child(section("Cuffia (Cue · anteprima)", "test-cue", Role::Cue, cx))
+                    .child(section("DECK A · CASSE (MASTER)", "test-master", Role::Master, p.live, cx))
+                    .child(section("DECK B · CUFFIA (CUE)", "test-cue", Role::Cue, p.cue, cx))
                     .when(same, |d| {
-                        d.child(
-                            div()
-                                .p_2()
-                                .rounded_md()
-                                .bg(p.warn_bg)
-                                .child("Casse e cuffia sono lo stesso dispositivo: l'anteprima si sentirebbe anche dalle casse."),
-                        )
+                        d.child(div().p_2().rounded(px(RADIUS)).bg(p.warn_bg).child(
+                            "Casse e cuffia sono lo stesso dispositivo: l'anteprima si sentirebbe anche dalle casse.",
+                        ))
                     })
                     .child(
                         div()
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child("Durata del crossfade"))
-                            .child(button("fade-down", "−", p).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.change_crossfade(-0.5, cx))))
-                            .child(div().w(px(56.)).text_center().child(format!("{:.1} s", self.settings.crossfade_secs)))
-                            .child(button("fade-up", "+", p).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.change_crossfade(0.5, cx)))),
+                            .child(caps("DURATA DEL CROSSFADE", p.muted).flex_1())
+                            .child(button("fade-down", "−", p).on_click(cx.listener(
+                                |this, _: &ClickEvent, _, cx| this.change_crossfade(-0.5, cx),
+                            )))
+                            .child(
+                                div()
+                                    .w(px(64.))
+                                    .text_center()
+                                    .font_family(DISPLAY_FONT)
+                                    .child(format!("{:.1} s", self.settings.crossfade_secs)),
+                            )
+                            .child(button("fade-up", "+", p).on_click(cx.listener(
+                                |this, _: &ClickEvent, _, cx| this.change_crossfade(0.5, cx),
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(caps("TEMA  ·  ⌘T PER CAMBIARE AL VOLO", p.muted))
+                            .child(div().flex().flex_wrap().gap_2().children(themes)),
                     )
                     .child(
                         div()
                             .flex()
                             .justify_between()
-                            .child(
-                                button("refresh-devices", "Aggiorna dispositivi", p)
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx))),
-                            )
-                            .child(
-                                primary("close-settings", "Fatto", p.cue, p)
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_settings(window, cx))),
-                            ),
+                            .child(button("refresh-devices", "↻ DISPOSITIVI", p).on_click(
+                                cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
+                            ))
+                            .child(filled("close-settings", "FATTO", p.cue, p).on_click(
+                                cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.close_settings(window, cx)
+                                }),
+                            )),
                     ),
             )
             .into_any_element()

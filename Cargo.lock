@@ -2632,6 +2632,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "guic-gpui-assets"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e54c8ef99db670d85ca38a0b48e42174a0df8cd958918315ac53e8fc0ab0e2ed"
+
+[[package]]
 name = "h2"
 version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3777,6 +3783,7 @@ dependencies = [
  "gpui-component",
  "gpui-pre",
  "gpui-pre-platform",
+ "guic-gpui-assets",
  "lofty",
  "rtrb",
  "rubato",

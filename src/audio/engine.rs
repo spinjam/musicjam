@@ -70,6 +70,8 @@ pub struct Snapshot {
     pub playing: bool,
     pub previewing: bool,
     pub master_ready: bool,
+    /// How far a running crossfade has got, 0..=1.
+    pub fade: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -383,6 +385,10 @@ impl Master {
             playing: t.playing,
             previewing: t.previewing,
             master_ready: self.output.is_some(),
+            fade: t
+                .incoming
+                .as_ref()
+                .map(|i| (i.elapsed / i.fade_len).clamp(0.0, 1.0)),
         }
     }
 

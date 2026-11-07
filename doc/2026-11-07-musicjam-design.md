@@ -129,3 +129,9 @@ Scelte delle librerie e struttura del codice, algoritmo di punteggio della ricer
 5. **Aggiornamento della libreria:** all'avvio e con un pulsante "Aggiorna libreria". Nessun controllo continuo dei file. Se la cartella non è raggiungibile (per esempio un disco esterno scollegato), l'indice non viene cancellato e compare un avviso.
 6. **Esecuzione:** con `cargo run`. Pacchetto `.app` firmato fuori da questa versione.
 7. **§8 approvato.** Un brano caricato quando nulla è in onda va in "Prossimo"; il pulsante Play del deck "Prossimo" (oppure Crossfade) lo manda in onda senza dissolvenza.
+
+## 11. Modifiche chieste dopo la prima versione
+
+- Le colonne si ridimensionano trascinando i bordi.
+- Volume separato per casse e cuffia, salvato nelle impostazioni. Questo sostituisce la decisione del §10.2 ("niente volume").
+- Temi grafici come in filejam, scelti nelle Impostazioni o con ⌘T. L'aspetto è da console DJ: deck A e deck B con i loro colori, scritte e tempi in carattere monospaziato, angoli squadrati e un indicatore del crossfader.

@@ -14,6 +14,14 @@ use ui::Workspace;
 
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
+        cx.text_system()
+            .add_fonts(
+                guic_gpui_assets::BUNDLED_FONTS
+                    .iter()
+                    .map(|f| std::borrow::Cow::Borrowed(*f))
+                    .collect(),
+            )
+            .expect("bundled fonts must be loadable");
         gpui_component::init(cx);
         cx.bind_keys(actions::bindings());
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
@@ -47,6 +55,11 @@ fn main() {
                     MenuItem::action("Partenza −1 s", NudgeBack),
                     MenuItem::action("Partenza +1 s", NudgeForward),
                 ],
+            },
+            Menu {
+                name: "Vista".into(),
+                disabled: false,
+                items: vec![MenuItem::action("Tema successivo", CycleTheme)],
             },
         ]);
 

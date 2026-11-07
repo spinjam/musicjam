@@ -21,6 +21,7 @@ actions!(
         NudgeBackFine,
         NudgeForwardFine,
         Rescan,
+        CycleTheme,
     ]
 );
 
@@ -36,6 +37,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-f", FocusSearch, None),
         KeyBinding::new("cmd-r", Rescan, None),
+        KeyBinding::new("cmd-t", CycleTheme, None),
         KeyBinding::new("cmd-p", PlayPause, None),
         KeyBinding::new("cmd-.", Stop, None),
         KeyBinding::new("cmd-e", TogglePreview, None),

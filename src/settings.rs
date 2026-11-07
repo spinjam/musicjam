@@ -18,6 +18,8 @@ pub struct Settings {
     /// Slider levels, 0..=1.
     pub master_volume: f32,
     pub cue_volume: f32,
+    /// A theme by name; None follows the system's light or dark.
+    pub theme: Option<String>,
 }
 
 impl Default for Settings {
@@ -29,6 +31,7 @@ impl Default for Settings {
             crossfade_secs: DEFAULT_CROSSFADE_SECS,
             master_volume: 1.0,
             cue_volume: 0.8,
+            theme: None,
         }
     }
 }
@@ -80,6 +83,7 @@ mod tests {
             crossfade_secs: 7.5,
             master_volume: 0.6,
             cue_volume: 0.4,
+            theme: Some("Neon".into()),
         };
         save_to(dir.path(), &settings).unwrap();
         assert_eq!(load_from(dir.path()), settings);
