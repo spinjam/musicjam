@@ -17,7 +17,9 @@ pub fn build(root: &Path, tracks: &[Track]) -> FolderNode {
     struct Dir(BTreeMap<String, Dir>);
     let mut top = Dir::default();
     for t in tracks {
-        let Ok(rel) = t.path.strip_prefix(root) else { continue };
+        let Ok(rel) = t.path.strip_prefix(root) else {
+            continue;
+        };
         let mut dir = &mut top;
         if let Some(parent) = rel.parent() {
             for c in parent.iter() {
@@ -26,12 +28,22 @@ pub fn build(root: &Path, tracks: &[Track]) -> FolderNode {
         }
     }
     fn convert(path: PathBuf, name: String, dir: Dir) -> FolderNode {
-        let mut children: Vec<FolderNode> =
-            dir.0.into_iter().map(|(n, d)| convert(path.join(&n), n, d)).collect();
+        let mut children: Vec<FolderNode> = dir
+            .0
+            .into_iter()
+            .map(|(n, d)| convert(path.join(&n), n, d))
+            .collect();
         children.sort_by_key(|c| c.name.to_lowercase());
-        FolderNode { path, name, children }
+        FolderNode {
+            path,
+            name,
+            children,
+        }
     }
-    let name = root.file_name().map_or_else(|| root.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
+    let name = root.file_name().map_or_else(
+        || root.to_string_lossy().into_owned(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     convert(root.to_path_buf(), name, top)
 }
 
@@ -40,7 +52,12 @@ impl FolderNode {
     /// expanded node, each with its depth.
     pub fn visible_rows(&self, expanded: &HashSet<PathBuf>) -> Vec<(usize, &FolderNode)> {
         let mut rows = Vec::new();
-        fn walk<'a>(n: &'a FolderNode, depth: usize, exp: &HashSet<PathBuf>, rows: &mut Vec<(usize, &'a FolderNode)>) {
+        fn walk<'a>(
+            n: &'a FolderNode,
+            depth: usize,
+            exp: &HashSet<PathBuf>,
+            rows: &mut Vec<(usize, &'a FolderNode)>,
+        ) {
             rows.push((depth, n));
             if exp.contains(&n.path) {
                 for c in &n.children {
@@ -58,12 +75,25 @@ mod tests {
     use super::*;
 
     fn t(path: &str) -> Track {
-        Track { id: 0, path: path.into(), title: String::new(), artist: String::new(), album: String::new(), track_no: None, duration_secs: 0.0 }
+        Track {
+            id: 0,
+            path: path.into(),
+            title: String::new(),
+            artist: String::new(),
+            album: String::new(),
+            track_no: None,
+            duration_secs: 0.0,
+        }
     }
 
     #[test]
     fn builds_sorted_tree_and_rows() {
-        let tracks = [t("/M/blur/B/1.mp3"), t("/M/Arctic/A/1.mp3"), t("/M/blur/A/2.mp3"), t("/M/loose.mp3")];
+        let tracks = [
+            t("/M/blur/B/1.mp3"),
+            t("/M/Arctic/A/1.mp3"),
+            t("/M/blur/A/2.mp3"),
+            t("/M/loose.mp3"),
+        ];
         let root = build(Path::new("/M"), &tracks);
         let names: Vec<&str> = root.children.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["Arctic", "blur"]);
@@ -73,7 +103,14 @@ mod tests {
         assert_eq!(root.visible_rows(&exp).len(), 1);
         exp.insert(PathBuf::from("/M"));
         exp.insert(PathBuf::from("/M/blur"));
-        let rows: Vec<(usize, &str)> = root.visible_rows(&exp).iter().map(|(d, n)| (*d, n.name.as_str())).collect();
-        assert_eq!(rows, [(0, "M"), (1, "Arctic"), (1, "blur"), (2, "A"), (2, "B")]);
+        let rows: Vec<(usize, &str)> = root
+            .visible_rows(&exp)
+            .iter()
+            .map(|(d, n)| (*d, n.name.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [(0, "M"), (1, "Arctic"), (1, "blur"), (2, "A"), (2, "B")]
+        );
     }
 }

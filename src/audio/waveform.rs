@@ -30,8 +30,13 @@ pub fn peaks(path: &Path, buckets: usize) -> Result<Vec<f32>> {
     Ok((0..buckets)
         .map(|b| {
             let from = b * blocks.len() / buckets;
-            let to = ((b + 1) * blocks.len() / buckets).max(from + 1).min(blocks.len());
-            blocks[from.min(blocks.len() - 1)..to].iter().fold(0.0f32, |m, &v| m.max(v)).min(1.0)
+            let to = ((b + 1) * blocks.len() / buckets)
+                .max(from + 1)
+                .min(blocks.len());
+            blocks[from.min(blocks.len() - 1)..to]
+                .iter()
+                .fold(0.0f32, |m, &v| m.max(v))
+                .min(1.0)
         })
         .collect())
 }
@@ -48,6 +53,10 @@ mod tests {
         let peaks = peaks(&p, 200).unwrap();
         assert_eq!(peaks.len(), 200);
         // The fixture is a sine at 16000/32768 of full scale.
-        assert!(peaks.iter().all(|&v| (0.45..=0.5).contains(&v)), "{:?}", &peaks[..5]);
+        assert!(
+            peaks.iter().all(|&v| (0.45..=0.5).contains(&v)),
+            "{:?}",
+            &peaks[..5]
+        );
     }
 }

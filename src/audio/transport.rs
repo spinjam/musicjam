@@ -29,14 +29,23 @@ pub struct Incoming {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     /// Open `slot` on the master output at `at` seconds, at full gain.
-    StartOnAir { slot: Slot, at: f32 },
+    StartOnAir {
+        slot: Slot,
+        at: f32,
+    },
     /// Open `slot` from its start point as the second voice of a crossfade.
-    StartIncoming { slot: Slot },
+    StartIncoming {
+        slot: Slot,
+    },
     /// The crossfade is over: the incoming voice becomes the on-air one.
     FinishCrossfade,
-    SeekOnAir { at: f32 },
+    SeekOnAir {
+        at: f32,
+    },
     StopAll,
-    StartPreview { slot: Slot },
+    StartPreview {
+        slot: Slot,
+    },
     StopPreview,
 }
 
@@ -52,7 +61,14 @@ pub struct Transport {
 
 impl Transport {
     pub fn new(crossfade_secs: f32) -> Self {
-        Self { crossfade_secs, on_air: None, next: None, incoming: None, playing: false, previewing: false }
+        Self {
+            crossfade_secs,
+            on_air: None,
+            next: None,
+            incoming: None,
+            playing: false,
+            previewing: false,
+        }
     }
 
     pub fn load_next(&mut self, slot: Slot) -> Vec<Effect> {
@@ -61,9 +77,15 @@ impl Transport {
     }
 
     pub fn set_start(&mut self, secs: f32) -> Vec<Effect> {
-        let Some(next) = &mut self.next else { return vec![] };
+        let Some(next) = &mut self.next else {
+            return vec![];
+        };
         next.start = secs.clamp(0.0, (next.duration - 0.5).max(0.0));
-        if self.previewing { vec![Effect::StartPreview { slot: next.clone() }] } else { vec![] }
+        if self.previewing {
+            vec![Effect::StartPreview { slot: next.clone() }]
+        } else {
+            vec![]
+        }
     }
 
     pub fn toggle_preview(&mut self) -> Vec<Effect> {
@@ -84,10 +106,18 @@ impl Transport {
             self.playing = true;
             return vec![];
         }
-        let Some(slot) = self.next.take() else { return vec![] };
+        let Some(slot) = self.next.take() else {
+            return vec![];
+        };
         let mut fx = self.stop_preview();
-        fx.push(Effect::StartOnAir { slot: slot.clone(), at: slot.start });
-        self.on_air = Some(OnAir { pos: slot.start, slot });
+        fx.push(Effect::StartOnAir {
+            slot: slot.clone(),
+            at: slot.start,
+        });
+        self.on_air = Some(OnAir {
+            pos: slot.start,
+            slot,
+        });
         self.playing = true;
         fx
     }
@@ -126,7 +156,9 @@ impl Transport {
         if !self.playing {
             return vec![];
         }
-        let Some(on) = &mut self.on_air else { return vec![] };
+        let Some(on) = &mut self.on_air else {
+            return vec![];
+        };
         on.pos += dt;
         let remaining = on.slot.duration - on.pos;
 
@@ -175,21 +207,36 @@ impl Transport {
         if self.incoming.is_some() {
             return vec![];
         }
-        let Some(slot) = self.next.take() else { return vec![] };
+        let Some(slot) = self.next.take() else {
+            return vec![];
+        };
         let mut fx = self.stop_preview();
         fx.push(Effect::StartIncoming { slot: slot.clone() });
-        self.incoming = Some(Incoming { slot, elapsed: 0.0, fade_len });
+        self.incoming = Some(Incoming {
+            slot,
+            elapsed: 0.0,
+            fade_len,
+        });
         fx
     }
 
     fn finish_crossfade(&mut self) -> Vec<Effect> {
-        let Some(inc) = self.incoming.take() else { return vec![] };
-        self.on_air = Some(OnAir { pos: inc.slot.start + inc.elapsed, slot: inc.slot });
+        let Some(inc) = self.incoming.take() else {
+            return vec![];
+        };
+        self.on_air = Some(OnAir {
+            pos: inc.slot.start + inc.elapsed,
+            slot: inc.slot,
+        });
         vec![Effect::FinishCrossfade]
     }
 
     fn stop_preview(&mut self) -> Vec<Effect> {
-        if std::mem::take(&mut self.previewing) { vec![Effect::StopPreview] } else { vec![] }
+        if std::mem::take(&mut self.previewing) {
+            vec![Effect::StopPreview]
+        } else {
+            vec![]
+        }
     }
 }
 
@@ -198,7 +245,12 @@ mod tests {
     use super::*;
 
     fn slot(id: i64, duration: f32, start: f32) -> Slot {
-        Slot { id, path: format!("/m/{id}.flac").into(), duration, start }
+        Slot {
+            id,
+            path: format!("/m/{id}.flac").into(),
+            duration,
+            start,
+        }
     }
 
     fn run(t: &mut Transport, secs: f32) -> Vec<Effect> {
@@ -221,7 +273,13 @@ mod tests {
         let mut t = Transport::new(5.0);
         t.load_next(slot(1, 100.0, 12.0));
         let fx = t.play();
-        assert_eq!(fx, [Effect::StartOnAir { slot: slot(1, 100.0, 12.0), at: 12.0 }]);
+        assert_eq!(
+            fx,
+            [Effect::StartOnAir {
+                slot: slot(1, 100.0, 12.0),
+                at: 12.0
+            }]
+        );
         assert!(t.next.is_none() && t.playing && t.incoming.is_none());
     }
 
@@ -232,7 +290,9 @@ mod tests {
         let fx = run(&mut t, 54.99);
         assert!(!fx.iter().any(|e| matches!(e, Effect::StartIncoming { .. })));
         let fx = run(&mut t, 0.02);
-        assert!(fx.contains(&Effect::StartIncoming { slot: slot(2, 200.0, 30.0) }));
+        assert!(fx.contains(&Effect::StartIncoming {
+            slot: slot(2, 200.0, 30.0)
+        }));
         let fx = run(&mut t, 5.0);
         assert!(fx.contains(&Effect::FinishCrossfade));
         let on = t.on_air.as_ref().unwrap();
@@ -298,7 +358,10 @@ mod tests {
         let mut t = on_air_from(slot(1, 100.0, 0.0));
         t.load_next(slot(2, 100.0, 7.0));
         let fx = t.on_air_ended();
-        assert!(fx.contains(&Effect::StartOnAir { slot: slot(2, 100.0, 7.0), at: 7.0 }));
+        assert!(fx.contains(&Effect::StartOnAir {
+            slot: slot(2, 100.0, 7.0),
+            at: 7.0
+        }));
         assert!(t.playing);
     }
 }

@@ -21,7 +21,9 @@ pub fn list_devices() -> Vec<String> {
 }
 
 pub fn default_device() -> Option<String> {
-    cpal::default_host().default_output_device().and_then(|d| d.name().ok())
+    cpal::default_host()
+        .default_output_device()
+        .and_then(|d| d.name().ok())
 }
 
 /// An open output device. The render thread pushes interleaved stereo into
@@ -43,13 +45,17 @@ impl Output {
             .ok_or_else(|| anyhow!("device not found: {name}"))?;
         let supported = device.default_output_config()?;
         if supported.sample_format() != cpal::SampleFormat::F32 {
-            return Err(anyhow!("{name}: unsupported sample format {:?}", supported.sample_format()));
+            return Err(anyhow!(
+                "{name}: unsupported sample format {:?}",
+                supported.sample_format()
+            ));
         }
         let config: cpal::StreamConfig = supported.into();
         let rate = config.sample_rate.0;
         let channels = config.channels as usize;
 
-        let (producer, mut consumer) = rtrb::RingBuffer::<f32>::new((rate as f32 * RING_SECS) as usize * 2);
+        let (producer, mut consumer) =
+            rtrb::RingBuffer::<f32>::new((rate as f32 * RING_SECS) as usize * 2);
         let lost = Arc::new(AtomicBool::new(false));
         let lost_cb = lost.clone();
         let stream = device.build_output_stream(
@@ -76,7 +82,12 @@ impl Output {
             None,
         )?;
         stream.play()?;
-        Ok(Self { _stream: stream, producer, rate, lost })
+        Ok(Self {
+            _stream: stream,
+            producer,
+            rate,
+            lost,
+        })
     }
 
     /// True once the device has gone away (unplugged, out of Bluetooth range).
@@ -109,7 +120,10 @@ impl TestTone {
     const SIDE_SECS: f32 = 0.4;
 
     pub fn new(rate: u32) -> Self {
-        Self { rate: rate as f32, frame: 0 }
+        Self {
+            rate: rate as f32,
+            frame: 0,
+        }
     }
 
     /// Adds the tone into `out` (interleaved stereo). False once it is over.

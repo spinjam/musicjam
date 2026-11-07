@@ -27,10 +27,17 @@ pub fn meta_from_path(root: &Path, path: &Path) -> Meta {
         .parent()
         .map(|p| p.iter().map(|c| c.to_string_lossy().into_owned()).collect())
         .unwrap_or_default();
-    let mut artist = if dirs.len() >= 2 { dirs[dirs.len() - 2].clone() } else { String::new() };
+    let mut artist = if dirs.len() >= 2 {
+        dirs[dirs.len() - 2].clone()
+    } else {
+        String::new()
+    };
     let album = dirs.last().cloned().unwrap_or_default();
 
-    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let (track_no, rest) = split_track_number(&stem);
     let mut title = rest.trim().to_string();
     if artist.is_empty()
@@ -42,7 +49,13 @@ pub fn meta_from_path(root: &Path, path: &Path) -> Meta {
     if title.is_empty() {
         title = stem;
     }
-    Meta { artist, album, title, track_no, duration_secs: 0.0 }
+    Meta {
+        artist,
+        album,
+        title,
+        track_no,
+        duration_secs: 0.0,
+    }
 }
 
 fn split_track_number(stem: &str) -> (Option<u32>, &str) {
@@ -68,7 +81,10 @@ pub fn read_meta(root: &Path, path: &Path) -> Meta {
     meta.duration_secs = file.properties().duration().as_secs_f32();
     if let Some(tag) = file.primary_tag().or_else(|| file.first_tag()) {
         let set = |field: &mut String, value: Option<std::borrow::Cow<'_, str>>| {
-            if let Some(v) = value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+            if let Some(v) = value
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+            {
                 *field = v;
             }
         };
@@ -89,7 +105,10 @@ mod tests {
     #[test]
     fn fallback_from_path() {
         let root = Path::new("/Music");
-        let m = meta_from_path(root, Path::new("/Music/Blur/The Ballad of Darren/03 - The Narcissist.wav"));
+        let m = meta_from_path(
+            root,
+            Path::new("/Music/Blur/The Ballad of Darren/03 - The Narcissist.wav"),
+        );
         assert_eq!(m.artist, "Blur");
         assert_eq!(m.album, "The Ballad of Darren");
         assert_eq!(m.title, "The Narcissist");
@@ -101,7 +120,10 @@ mod tests {
         let root = Path::new("/Music");
         let m = meta_from_path(root, Path::new("/Music/Blur - Song 2.mp3"));
         assert_eq!((m.artist.as_str(), m.title.as_str()), ("Blur", "Song 2"));
-        let m = meta_from_path(root, Path::new("/Music/Smashing Pumpkins/Mellon Collie/1979.flac"));
+        let m = meta_from_path(
+            root,
+            Path::new("/Music/Smashing Pumpkins/Mellon Collie/1979.flac"),
+        );
         assert_eq!((m.title.as_str(), m.track_no), ("1979", None));
     }
 

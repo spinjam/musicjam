@@ -22,7 +22,11 @@ pub struct Track {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanReport {
-    Done { added: usize, updated: usize, removed: usize },
+    Done {
+        added: usize,
+        updated: usize,
+        removed: usize,
+    },
     /// The folder is not reachable (an unplugged drive, say). The index is
     /// left as it was rather than emptied.
     RootMissing,
@@ -52,7 +56,10 @@ impl Library {
                 duration REAL NOT NULL
             );",
         )?;
-        let mut library = Self { conn, tracks: Vec::new() };
+        let mut library = Self {
+            conn,
+            tracks: Vec::new(),
+        };
         library.reload()?;
         Ok(library)
     }
@@ -74,7 +81,11 @@ impl Library {
         let (mut added, mut updated) = (0, 0);
         let mut seen = HashSet::new();
         let tx = self.conn.transaction()?;
-        for entry in walkdir::WalkDir::new(root).follow_links(true).into_iter().flatten() {
+        for entry in walkdir::WalkDir::new(root)
+            .follow_links(true)
+            .into_iter()
+            .flatten()
+        {
             let path = entry.path();
             if !entry.file_type().is_file() || !scan::is_audio(path) {
                 continue;
@@ -99,7 +110,16 @@ impl Library {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT(path) DO UPDATE SET mtime=?2, size=?3, title=?4, artist=?5,
                     album=?6, track_no=?7, duration=?8",
-                params![key, mtime, size, meta.title, meta.artist, meta.album, meta.track_no, meta.duration_secs],
+                params![
+                    key,
+                    mtime,
+                    size,
+                    meta.title,
+                    meta.artist,
+                    meta.album,
+                    meta.track_no,
+                    meta.duration_secs
+                ],
             )?;
         }
         let gone: Vec<&String> = known.keys().filter(|k| !seen.contains(*k)).collect();
@@ -108,7 +128,11 @@ impl Library {
         }
         tx.commit()?;
         self.reload()?;
-        Ok(ScanReport::Done { added, updated, removed: gone.len() })
+        Ok(ScanReport::Done {
+            added,
+            updated,
+            removed: gone.len(),
+        })
     }
 
     fn reload(&mut self) -> Result<()> {
@@ -151,12 +175,30 @@ mod tests {
         touch(&root, "Blur/Blur/cover.jpg");
         let mut lib = Library::open(&dir.path().join("lib.sqlite")).unwrap();
 
-        assert_eq!(lib.rescan(&root).unwrap(), ScanReport::Done { added: 2, updated: 0, removed: 0 });
-        let t = lib.tracks().iter().find(|t| t.title == "The Narcissist").unwrap();
+        assert_eq!(
+            lib.rescan(&root).unwrap(),
+            ScanReport::Done {
+                added: 2,
+                updated: 0,
+                removed: 0
+            }
+        );
+        let t = lib
+            .tracks()
+            .iter()
+            .find(|t| t.title == "The Narcissist")
+            .unwrap();
         assert_eq!((t.artist.as_str(), t.track_no), ("Blur", Some(3)));
 
         std::fs::remove_file(root.join("Blur/Blur/02 - Song 2.mp3")).unwrap();
-        assert_eq!(lib.rescan(&root).unwrap(), ScanReport::Done { added: 0, updated: 0, removed: 1 });
+        assert_eq!(
+            lib.rescan(&root).unwrap(),
+            ScanReport::Done {
+                added: 0,
+                updated: 0,
+                removed: 1
+            }
+        );
         assert_eq!(lib.tracks().len(), 1);
     }
 

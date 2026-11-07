@@ -25,7 +25,10 @@ pub enum Role {
 
 #[derive(Debug, Clone)]
 pub enum Command {
-    SetDevices { master: Option<String>, cue: Option<String> },
+    SetDevices {
+        master: Option<String>,
+        cue: Option<String>,
+    },
     SetCrossfade(f32),
     LoadNext(Slot),
     SetStart(f32),
@@ -135,6 +138,7 @@ impl Master {
 
     fn run(mut self, rx: Receiver<Command>) {
         let mut last_snapshot = Instant::now();
+        let mut last_sent = Snapshot::default();
         loop {
             loop {
                 match rx.try_recv() {
@@ -150,15 +154,24 @@ impl Master {
                 self.emit(EngineEvent::DeviceLost(Role::Master));
             }
             let mut rendered = false;
-            while self.output.as_ref().is_some_and(|o| o.free_frames() >= BLOCK_FRAMES) {
+            while self
+                .output
+                .as_ref()
+                .is_some_and(|o| o.free_frames() >= BLOCK_FRAMES)
+            {
                 if !self.render_block() {
                     break;
                 }
                 rendered = true;
             }
+            // Only changes go out: an idle player should not keep the UI redrawing.
             if last_snapshot.elapsed() >= SNAPSHOT_EVERY {
                 last_snapshot = Instant::now();
-                self.emit(EngineEvent::State(self.snapshot()));
+                let now = self.snapshot();
+                if now != last_sent {
+                    last_sent = now.clone();
+                    self.emit(EngineEvent::State(now));
+                }
             }
             if !rendered {
                 thread::sleep(IDLE);
@@ -250,7 +263,9 @@ impl Master {
                     self.incoming = None;
                     self.on_air = self.open(&slot.path, rate, at);
                 }
-                Effect::StartIncoming { slot } => self.incoming = self.open(&slot.path, rate, slot.start),
+                Effect::StartIncoming { slot } => {
+                    self.incoming = self.open(&slot.path, rate, slot.start)
+                }
                 Effect::FinishCrossfade => self.on_air = self.incoming.take(),
                 Effect::SeekOnAir { at } => {
                     if let Some(on) = &self.transport.on_air {
@@ -262,7 +277,10 @@ impl Master {
                     self.incoming = None;
                 }
                 Effect::StartPreview { slot } => {
-                    let _ = self.cue.send(CueCommand::Start { path: slot.path, start: slot.start });
+                    let _ = self.cue.send(CueCommand::Start {
+                        path: slot.path,
+                        start: slot.start,
+                    });
                 }
                 Effect::StopPreview => {
                     let _ = self.cue.send(CueCommand::Stop);
@@ -285,7 +303,9 @@ impl Master {
 
     /// Renders one block into the device ring. False when nothing is due.
     fn render_block(&mut self) -> bool {
-        let Some(out) = &self.output else { return false };
+        let Some(out) = &self.output else {
+            return false;
+        };
         let rate = out.rate;
         let playing = self.transport.playing && self.on_air.is_some();
         if !playing && self.tone.is_none() {
@@ -324,8 +344,18 @@ impl Master {
     fn snapshot(&self) -> Snapshot {
         let t = &self.transport;
         Snapshot {
-            on_air: t.on_air.as_ref().map(|o| DeckInfo { id: o.slot.id, pos: o.pos, duration: o.slot.duration, start: o.slot.start }),
-            next: t.next.as_ref().map(|s| DeckInfo { id: s.id, pos: s.start, duration: s.duration, start: s.start }),
+            on_air: t.on_air.as_ref().map(|o| DeckInfo {
+                id: o.slot.id,
+                pos: o.pos,
+                duration: o.slot.duration,
+                start: o.slot.start,
+            }),
+            next: t.next.as_ref().map(|s| DeckInfo {
+                id: s.id,
+                pos: s.start,
+                duration: s.duration,
+                start: s.start,
+            }),
             incoming: t.incoming.as_ref().map(|i| DeckInfo {
                 id: i.slot.id,
                 pos: i.slot.start + i.elapsed,

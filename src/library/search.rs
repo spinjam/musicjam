@@ -65,7 +65,8 @@ impl Index {
         hits.sort_by(|a, b| {
             b.0.total_cmp(&a.0).then_with(|| {
                 let (x, y) = (&tracks[a.1], &tracks[b.1]);
-                (&x.artist, &x.album, x.track_no, &x.title).cmp(&(&y.artist, &y.album, y.track_no, &y.title))
+                (&x.artist, &x.album, x.track_no, &x.title)
+                    .cmp(&(&y.artist, &y.album, y.track_no, &y.title))
             })
         });
         hits.into_iter().take(MAX_RESULTS).map(|(_, i)| i).collect()
@@ -131,7 +132,12 @@ mod tests {
 
     fn fixtures() -> Vec<Track> {
         vec![
-            track(1, "Some Cover Band", "Britpop Covers", "The Narcissist (Blur cover)"),
+            track(
+                1,
+                "Some Cover Band",
+                "Britpop Covers",
+                "The Narcissist (Blur cover)",
+            ),
             track(2, "Other", "Mirrors", "Narcissist"),
             track(3, "Blur", "The Ballad of Darren", "The Ballad"),
             track(4, "Blur", "The Ballad of Darren", "The Narcissist"),
@@ -143,7 +149,12 @@ mod tests {
     fn narcissist_ranks_first() {
         let tracks = fixtures();
         let index = Index::new(&tracks);
-        for q in ["the narcissist blur", "blur narcissist", "Narcissist BLUR", "narc blur"] {
+        for q in [
+            "the narcissist blur",
+            "blur narcissist",
+            "Narcissist BLUR",
+            "narc blur",
+        ] {
             let hits = index.query(&tracks, q, None);
             assert_eq!(tracks[hits[0]].id, 4, "query {q:?}");
         }
@@ -153,7 +164,11 @@ mod tests {
     fn every_word_must_match() {
         let tracks = fixtures();
         let index = Index::new(&tracks);
-        let ids: Vec<i64> = index.query(&tracks, "the narcissist blur", None).iter().map(|&i| tracks[i].id).collect();
+        let ids: Vec<i64> = index
+            .query(&tracks, "the narcissist blur", None)
+            .iter()
+            .map(|&i| tracks[i].id)
+            .collect();
         assert!(!ids.contains(&2) && !ids.contains(&3));
     }
 
@@ -163,7 +178,12 @@ mod tests {
         let index = Index::new(&tracks);
         let hits = index.query(&tracks, "", Some(Path::new("/Music/Blur")));
         assert_eq!(hits.len(), 2);
-        assert!(index.query(&tracks, "narcissist", Some(Path::new("/Music/Other"))).len() == 1);
+        assert!(
+            index
+                .query(&tracks, "narcissist", Some(Path::new("/Music/Other")))
+                .len()
+                == 1
+        );
     }
 
     #[test]

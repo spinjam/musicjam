@@ -54,7 +54,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &LoadSelected, _, cx| this.load_selected(cx)))
             .on_action(cx.listener(|this, _: &PlayPause, _, _| this.play_pause()))
             .on_action(cx.listener(|this, _: &Stop, _, _| this.send(Command::Stop)))
-            .on_action(cx.listener(|this, _: &TogglePreview, _, _| this.send(Command::TogglePreview)))
+            .on_action(
+                cx.listener(|this, _: &TogglePreview, _, _| this.send(Command::TogglePreview)),
+            )
             .on_action(cx.listener(|this, _: &Crossfade, _, _| this.send(Command::Crossfade)))
             .on_action(cx.listener(|this, _: &NudgeBack, _, _| this.nudge(-1.0)))
             .on_action(cx.listener(|this, _: &NudgeForward, _, _| this.nudge(1.0)))
@@ -68,7 +70,11 @@ impl Render for Workspace {
     }
 }
 
-fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, p: Palette) -> gpui::Stateful<gpui::Div> {
+fn button(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    p: Palette,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .px_3()
@@ -82,12 +88,25 @@ fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, p: Palette) 
         .child(label.into())
 }
 
-fn primary(id: impl Into<ElementId>, label: impl Into<SharedString>, color: Hsla, p: Palette) -> gpui::Stateful<gpui::Div> {
-    button(id, label, p).bg(color).border_color(color).text_color(p.on_accent).font_weight(FontWeight::SEMIBOLD)
+fn primary(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    color: Hsla,
+    p: Palette,
+) -> gpui::Stateful<gpui::Div> {
+    button(id, label, p)
+        .bg(color)
+        .border_color(color)
+        .text_color(p.on_accent)
+        .font_weight(FontWeight::SEMIBOLD)
 }
 
 fn label(text: impl Into<SharedString>, color: Hsla) -> gpui::Div {
-    div().text_size(px(10.5)).font_weight(FontWeight::BOLD).text_color(color).child(text.into())
+    div()
+        .text_size(px(10.5))
+        .font_weight(FontWeight::BOLD)
+        .text_color(color)
+        .child(text.into())
 }
 
 impl Workspace {
@@ -110,9 +129,17 @@ impl Workspace {
                 .py_2()
                 .child(label("LIBRERIA", p.muted))
                 .child(
-                    button("rescan", if self.scanning { "Aggiorno…" } else { "Aggiorna" }, p)
-                        .text_size(px(11.))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.rescan(cx))),
+                    button(
+                        "rescan",
+                        if self.scanning {
+                            "Aggiorno…"
+                        } else {
+                            "Aggiorna"
+                        },
+                        p,
+                    )
+                    .text_size(px(11.))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.rescan(cx))),
                 ),
         );
         let Some(tree) = &self.tree else {
@@ -129,7 +156,13 @@ impl Workspace {
                     None => is_root,
                 };
                 let open = self.expanded.contains(&node.path);
-                let arrow = if node.children.is_empty() { " " } else if open { "▾" } else { "▸" };
+                let arrow = if node.children.is_empty() {
+                    " "
+                } else if open {
+                    "▾"
+                } else {
+                    "▸"
+                };
                 let path = node.path.clone();
                 let toggle_path = node.path.clone();
                 div()
@@ -143,7 +176,9 @@ impl Workspace {
                     .mx_1()
                     .rounded_sm()
                     .cursor_pointer()
-                    .when(selected, |d| d.bg(p.selected).font_weight(FontWeight::SEMIBOLD))
+                    .when(selected, |d| {
+                        d.bg(p.selected).font_weight(FontWeight::SEMIBOLD)
+                    })
                     .child(
                         div()
                             .id(("arrow", i))
@@ -155,21 +190,53 @@ impl Workspace {
                                 this.toggle_folder(toggle_path.clone(), cx);
                             })),
                     )
-                    .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(node.name.clone()))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_folder(path.clone(), cx)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(node.name.clone()),
+                    )
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.select_folder(path.clone(), cx)
+                    }))
                     .into_any_element()
             })
             .collect();
-        col.child(div().id("tree").flex_1().overflow_y_scroll().pb_2().children(rows)).into_any_element()
+        col.child(
+            div()
+                .id("tree")
+                .flex_1()
+                .overflow_y_scroll()
+                .pb_2()
+                .children(rows),
+        )
+        .into_any_element()
     }
 
     fn render_list(&self, p: Palette, cx: &mut Context<Self>) -> AnyElement {
         let crumb: SharedString = match (&self.scope, &self.settings.library_root) {
-            (Some(s), Some(r)) => s.strip_prefix(r).map_or_else(|_| s.display().to_string(), |rel| {
-                let name = r.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                format!("{name} › {}", rel.iter().map(|c| c.to_string_lossy()).collect::<Vec<_>>().join(" › "))
-            }),
-            (None, Some(r)) => r.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            (Some(s), Some(r)) => s.strip_prefix(r).map_or_else(
+                |_| s.display().to_string(),
+                |rel| {
+                    let name = r
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    format!(
+                        "{name} › {}",
+                        rel.iter()
+                            .map(|c| c.to_string_lossy())
+                            .collect::<Vec<_>>()
+                            .join(" › ")
+                    )
+                },
+            ),
+            (None, Some(r)) => r
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
             _ => String::new(),
         }
         .into();
@@ -197,12 +264,19 @@ impl Workspace {
             } else {
                 "Nessun brano trovato."
             };
-            div().flex_1().p_4().text_color(p.muted).child(msg).into_any_element()
+            div()
+                .flex_1()
+                .p_4()
+                .text_color(p.muted)
+                .child(msg)
+                .into_any_element()
         } else {
             uniform_list(
                 "tracks",
                 count,
-                cx.processor(move |this, range: Range<usize>, _window, cx| this.render_rows(range, p, cx)),
+                cx.processor(move |this, range: Range<usize>, _window, cx| {
+                    this.render_rows(range, p, cx)
+                }),
             )
             .track_scroll(&self.list_scroll)
             .w_full()
@@ -239,7 +313,12 @@ impl Workspace {
             .into_any_element()
     }
 
-    fn render_rows(&mut self, range: Range<usize>, p: Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn render_rows(
+        &mut self,
+        range: Range<usize>,
+        p: Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
         let next_id = self.snapshot.next.as_ref().map(|d| d.id);
         let air_id = self.snapshot.on_air.as_ref().map(|d| d.id);
         range
@@ -266,7 +345,11 @@ impl Workspace {
                         .border_color(p.border)
                         .cursor_pointer()
                         .when(selected, |d| d.bg(p.selected))
-                        .child(div().w(px(12.)).when_some(marker, |d, (m, c)| d.text_color(c).child(m)))
+                        .child(
+                            div()
+                                .w(px(12.))
+                                .when_some(marker, |d, (m, c)| d.text_color(c).child(m)),
+                        )
                         .child(
                             div()
                                 .flex_1()
@@ -291,7 +374,13 @@ impl Workspace {
                                     _ => t.album.clone(),
                                 }),
                         )
-                        .child(div().w(px(44.)).text_right().text_color(p.muted).child(clock(t.duration_secs)))
+                        .child(
+                            div()
+                                .w(px(44.))
+                                .text_right()
+                                .text_color(p.muted)
+                                .child(clock(t.duration_secs)),
+                        )
                         .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                             window.focus(&this.focus, cx);
                             if ev.click_count() >= 2 {
@@ -343,35 +432,79 @@ impl Workspace {
         } else {
             "● IN ONDA · CASSE"
         };
-        let on_air = self.render_deck(Deck::OnAir, air, air_label, p.live, None, p, cx).child(
-            div()
-                .flex()
-                .gap_2()
-                .child(
-                    button("playpause", if s.playing && s.on_air.is_some() { "Pausa" } else { "Play" }, p)
+        let on_air = self
+            .render_deck(Deck::OnAir, air, air_label, p.live, None, p, cx)
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        button(
+                            "playpause",
+                            if s.playing && s.on_air.is_some() {
+                                "Pausa"
+                            } else {
+                                "Play"
+                            },
+                            p,
+                        )
                         .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.play_pause())),
-                )
-                .child(button("stop", "Stop", p).on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(Command::Stop)))),
-        );
+                    )
+                    .child(button("stop", "Stop", p).on_click(
+                        cx.listener(|this, _: &ClickEvent, _, _| this.send(Command::Stop)),
+                    )),
+            );
 
         let fade = div().flex().justify_center().child(
-            primary("crossfade", format!("↑ Crossfade {:.0} s", self.settings.crossfade_secs), p.cue, p)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(Command::Crossfade))),
+            primary(
+                "crossfade",
+                format!("↑ Crossfade {:.0} s", self.settings.crossfade_secs),
+                p.cue,
+                p,
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(Command::Crossfade))),
         );
 
-        let next_label = if s.previewing { "◐ PROSSIMO · CUFFIA · in ascolto" } else { "◐ PROSSIMO · CUFFIA" };
+        let next_label = if s.previewing {
+            "◐ PROSSIMO · CUFFIA · in ascolto"
+        } else {
+            "◐ PROSSIMO · CUFFIA"
+        };
         let next = self
-            .render_deck(Deck::Next, s.next.as_ref(), next_label, p.cue, self.preview_pos, p, cx)
+            .render_deck(
+                Deck::Next,
+                s.next.as_ref(),
+                next_label,
+                p.cue,
+                self.preview_pos,
+                p,
+                cx,
+            )
             .child(
                 div()
                     .flex()
                     .gap_2()
                     .items_center()
                     .child(
-                        button("preview", if s.previewing { "■ Ferma anteprima" } else { "▶ Anteprima" }, p)
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(Command::TogglePreview))),
+                        button(
+                            "preview",
+                            if s.previewing {
+                                "■ Ferma anteprima"
+                            } else {
+                                "▶ Anteprima"
+                            },
+                            p,
+                        )
+                        .on_click(cx.listener(
+                            |this, _: &ClickEvent, _, _| this.send(Command::TogglePreview),
+                        )),
                     )
-                    .child(div().text_size(px(11.)).text_color(p.muted).child("clic sull'onda = punto di partenza")),
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(p.muted)
+                            .child("clic sull'onda = punto di partenza"),
+                    ),
             );
 
         let outputs = format!(
@@ -435,7 +568,11 @@ impl Workspace {
         let track = self.track(info.id);
         let title = track.map_or_else(|| "?".to_string(), |t| t.title.clone());
         let artist = track.map(|t| t.artist.clone()).unwrap_or_default();
-        let peaks = self.waves.get(&info.id).cloned().unwrap_or_else(|| Arc::new(vec![0.05; WAVE_BARS]));
+        let peaks = self
+            .waves
+            .get(&info.id)
+            .cloned()
+            .unwrap_or_else(|| Arc::new(vec![0.05; WAVE_BARS]));
         let dur = info.duration.max(0.001);
         let (played_to, marker) = match deck {
             Deck::OnAir => (info.pos / dur, None),
@@ -449,7 +586,11 @@ impl Workspace {
                 let frac = i as f32 / WAVE_BARS as f32;
                 let lit = frac < played_to;
                 let h = (peak.clamp(0.0, 1.0) * 40.).max(2.);
-                let id_base = if deck == Deck::OnAir { "air-bar" } else { "next-bar" };
+                let id_base = if deck == Deck::OnAir {
+                    "air-bar"
+                } else {
+                    "next-bar"
+                };
                 div()
                     .id((id_base, i))
                     .flex_1()
@@ -458,9 +599,14 @@ impl Workspace {
                     .items_center()
                     .cursor_pointer()
                     .child(div().w_full().h(px(h)).bg(if lit { color } else { p.wave }))
-                    .when(marker_bar == Some(i), |d| d.child(div().absolute().w(px(2.)).h_full().bg(color)))
+                    .when(marker_bar == Some(i), |d| {
+                        d.child(div().absolute().w(px(2.)).h_full().bg(color))
+                    })
                     .relative()
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| this.click_wave(deck, i)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, _| this.click_wave(deck, i)),
+                    )
                     .into_any_element()
             })
             .collect();
@@ -473,11 +619,25 @@ impl Workspace {
                 div()
                     .flex()
                     .flex_col()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).overflow_hidden().whitespace_nowrap().text_ellipsis().child(title))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(title),
+                    )
                     .child(div().text_color(p.muted).text_size(px(12.)).child(artist)),
             )
             .child(div().h(px(44.)).flex().gap(px(1.)).children(bars))
-            .child(div().flex().justify_end().text_size(px(11.5)).text_color(p.muted).child(right));
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .text_size(px(11.5))
+                    .text_color(p.muted)
+                    .child(right),
+            );
         card
     }
 
@@ -503,42 +663,56 @@ impl Workspace {
                         .cursor_pointer()
                         .when(on, |d| d.bg(p.selected).font_weight(FontWeight::SEMIBOLD))
                         .child(format!("{} {name}", if on { "◉" } else { "○" }))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_device(role, n.clone(), cx)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.set_device(role, n.clone(), cx)
+                        }))
                         .into_any_element()
                 })
                 .collect();
             if let Some(cur) = &current
                 && !self.devices.contains(cur)
             {
-                rows.push(div().px_2().text_color(p.live).child(format!("◉ {cur} (non collegato)")).into_any_element());
+                rows.push(
+                    div()
+                        .px_2()
+                        .text_color(p.live)
+                        .child(format!("◉ {cur} (non collegato)"))
+                        .into_any_element(),
+                );
             }
-            div().flex().flex_col().gap(px(2.)).children(rows).into_any_element()
-        };
-        let section = |title: &'static str, test_id: &'static str, role: Role, cx: &mut Context<Self>| {
             div()
                 .flex()
                 .flex_col()
-                .gap_2()
-                .child(
-                    div()
-                        .flex()
-                        .justify_between()
-                        .items_center()
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                        .child(
-                            button(test_id, "Prova", p)
-                                .text_size(px(11.))
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.send(Command::TestTone(role)))),
-                        ),
-                )
-                .child(device_list(role, cx))
+                .gap(px(2.))
+                .children(rows)
+                .into_any_element()
         };
-        let same = self.settings.master_device.is_some() && self.settings.master_device == self.settings.cue_device;
-        let root = self
-            .settings
-            .library_root
-            .as_ref()
-            .map_or_else(|| "Nessuna cartella scelta".to_string(), |r| r.display().to_string());
+        let section =
+            |title: &'static str, test_id: &'static str, role: Role, cx: &mut Context<Self>| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                            .child(button(test_id, "Prova", p).text_size(px(11.)).on_click(
+                                cx.listener(move |this, _: &ClickEvent, _, _| {
+                                    this.send(Command::TestTone(role))
+                                }),
+                            )),
+                    )
+                    .child(device_list(role, cx))
+            };
+        let same = self.settings.master_device.is_some()
+            && self.settings.master_device == self.settings.cue_device;
+        let root = self.settings.library_root.as_ref().map_or_else(
+            || "Nessuna cartella scelta".to_string(),
+            |r| r.display().to_string(),
+        );
 
         div()
             .id("settings-backdrop")

@@ -50,13 +50,25 @@ impl Source {
             hint.with_extension(ext);
         }
         let probed = symphonia::default::get_probe()
-            .format(&hint, mss, &FormatOptions { enable_gapless: true, ..Default::default() }, &MetadataOptions::default())
+            .format(
+                &hint,
+                mss,
+                &FormatOptions {
+                    enable_gapless: true,
+                    ..Default::default()
+                },
+                &MetadataOptions::default(),
+            )
             .with_context(|| format!("unsupported file {}", path.display()))?;
         let mut format = probed.format;
-        let track = format.default_track().ok_or_else(|| anyhow!("no audio track"))?;
+        let track = format
+            .default_track()
+            .ok_or_else(|| anyhow!("no audio track"))?;
         let track_id = track.id;
         let params = track.codec_params.clone();
-        let in_rate = params.sample_rate.ok_or_else(|| anyhow!("unknown sample rate"))?;
+        let in_rate = params
+            .sample_rate
+            .ok_or_else(|| anyhow!("unknown sample rate"))?;
         let duration_secs = match (params.n_frames, params.time_base) {
             (Some(n), Some(tb)) => {
                 let t = tb.calc_time(n);
@@ -70,16 +82,30 @@ impl Source {
         let mut skip_frames = 0;
         if start_secs > 0.0 {
             let time = Time::new(start_secs.trunc() as u64, f64::from(start_secs.fract()));
-            if let Ok(seeked) = format.seek(SeekMode::Accurate, SeekTo::Time { time, track_id: Some(track_id) }) {
+            if let Ok(seeked) = format.seek(
+                SeekMode::Accurate,
+                SeekTo::Time {
+                    time,
+                    track_id: Some(track_id),
+                },
+            ) {
                 skip_frames = seeked.required_ts.saturating_sub(seeked.actual_ts);
             }
         }
 
         let resampler = (in_rate != out_rate)
             .then(|| -> Result<ResampleState> {
-                let inner = FftFixedIn::new(in_rate as usize, out_rate as usize, RESAMPLE_CHUNK, 2, 2)?;
+                let inner =
+                    FftFixedIn::new(in_rate as usize, out_rate as usize, RESAMPLE_CHUNK, 2, 2)?;
                 let delay = inner.output_delay();
-                Ok(ResampleState { inner, pending: [Vec::new(), Vec::new()], delay, ratio: f64::from(out_rate) / f64::from(in_rate), frames_in: 0, frames_out: 0 })
+                Ok(ResampleState {
+                    inner,
+                    pending: [Vec::new(), Vec::new()],
+                    delay,
+                    ratio: f64::from(out_rate) / f64::from(in_rate),
+                    frames_in: 0,
+                    frames_out: 0,
+                })
             })
             .transpose()?;
 
@@ -148,7 +174,13 @@ impl Source {
             let skip = self.skip_frames.min(frames.len() as u64);
             self.skip_frames -= skip;
             let frames = frames.by_ref().skip(skip as usize);
-            let stereo = frames.map(|f| if channels == 1 { [f[0], f[0]] } else { [f[0], f[1]] });
+            let stereo = frames.map(|f| {
+                if channels == 1 {
+                    [f[0], f[0]]
+                } else {
+                    [f[0], f[1]]
+                }
+            });
             match &mut self.resampler {
                 None => {
                     for [l, r] in stereo {
@@ -164,7 +196,11 @@ impl Source {
                     }
                     while rs.pending[0].len() >= rs.inner.input_frames_next() {
                         let need = rs.inner.input_frames_next();
-                        let chunk: Vec<Vec<f32>> = rs.pending.iter_mut().map(|ch| ch.drain(..need).collect()).collect();
+                        let chunk: Vec<Vec<f32>> = rs
+                            .pending
+                            .iter_mut()
+                            .map(|ch| ch.drain(..need).collect())
+                            .collect();
                         if let Ok(out) = rs.inner.process(&chunk, None) {
                             rs.push(&mut self.ready, &out);
                         }
@@ -176,7 +212,9 @@ impl Source {
     }
 
     fn flush_resampler(&mut self) {
-        let Some(rs) = &mut self.resampler else { return };
+        let Some(rs) = &mut self.resampler else {
+            return;
+        };
         let rest: Vec<Vec<f32>> = rs.pending.iter_mut().map(std::mem::take).collect();
         if let Ok(out) = rs.inner.process_partial(Some(&rest), None) {
             rs.push(&mut self.ready, &out);
@@ -229,7 +267,8 @@ pub mod tests {
         b.extend_from_slice(b"data");
         b.extend_from_slice(&data_len.to_le_bytes());
         for i in 0..frames {
-            let v = ((i as f32 / rate as f32 * 440.0 * std::f32::consts::TAU).sin() * 16000.0) as i16;
+            let v =
+                ((i as f32 / rate as f32 * 440.0 * std::f32::consts::TAU).sin() * 16000.0) as i16;
             b.extend_from_slice(&v.to_le_bytes());
             b.extend_from_slice(&v.to_le_bytes());
         }

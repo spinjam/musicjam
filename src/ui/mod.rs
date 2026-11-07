@@ -65,15 +65,25 @@ impl Workspace {
             let _ = settings::save(&settings);
         }
         let (engine, events) = Engine::start(settings.crossfade_secs);
-        engine.send(Command::SetDevices { master: settings.master_device.clone(), cue: settings.cue_device.clone() });
+        engine.send(Command::SetDevices {
+            master: settings.master_device.clone(),
+            cue: settings.cue_device.clone(),
+        });
 
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Cerca artista, titolo, album…"));
-        cx.subscribe_in(&search, window, |this, _, event: &InputEvent, _window, cx| match event {
-            InputEvent::Change => this.run_query(cx),
-            InputEvent::PressEnter { secondary: true, .. } => this.engine.send(Command::Crossfade),
-            InputEvent::PressEnter { .. } => this.load_selected(cx),
-            _ => {}
-        })
+        let search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Cerca artista, titolo, album…"));
+        cx.subscribe_in(
+            &search,
+            window,
+            |this, _, event: &InputEvent, _window, cx| match event {
+                InputEvent::Change => this.run_query(cx),
+                InputEvent::PressEnter {
+                    secondary: true, ..
+                } => this.engine.send(Command::Crossfade),
+                InputEvent::PressEnter { .. } => this.load_selected(cx),
+                _ => {}
+            },
+        )
         .detach();
         search.update(cx, |s, cx| s.focus(window, cx));
         // The input is gpui-component's and follows its theme, not ours.
@@ -131,7 +141,10 @@ impl Workspace {
                 if batch.is_empty() {
                     continue;
                 }
-                if this.update(cx, |this, cx| this.on_events(batch, cx)).is_err() {
+                if this
+                    .update(cx, |this, cx| this.on_events(batch, cx))
+                    .is_err()
+                {
                     return;
                 }
             }
@@ -162,11 +175,15 @@ impl Workspace {
         if !self.snapshot.previewing {
             self.preview_pos = None;
         }
-        let ids: Vec<i64> = [&self.snapshot.on_air, &self.snapshot.next, &self.snapshot.incoming]
-            .into_iter()
-            .flatten()
-            .map(|d| d.id)
-            .collect();
+        let ids: Vec<i64> = [
+            &self.snapshot.on_air,
+            &self.snapshot.next,
+            &self.snapshot.incoming,
+        ]
+        .into_iter()
+        .flatten()
+        .map(|d| d.id)
+        .collect();
         for id in ids {
             self.ensure_wave(id, cx);
         }
@@ -187,8 +204,12 @@ impl Workspace {
         if self.waves.contains_key(&id) || !self.waves_pending.insert(id) {
             return;
         }
-        let Some(path) = self.track(id).map(|t| t.path.clone()) else { return };
-        let task = cx.background_executor().spawn(async move { waveform::peaks(&path, WAVE_BARS) });
+        let Some(path) = self.track(id).map(|t| t.path.clone()) else {
+            return;
+        };
+        let task = cx
+            .background_executor()
+            .spawn(async move { waveform::peaks(&path, WAVE_BARS) });
         cx.spawn(async move |this, cx| {
             let peaks = task.await.unwrap_or_else(|_| vec![0.0; WAVE_BARS]);
             let _ = this.update(cx, |this, cx| {
@@ -207,8 +228,12 @@ impl Workspace {
     // Library
 
     pub(crate) fn rescan(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.settings.library_root.clone() else { return };
-        let Some(mut library) = self.library.take() else { return };
+        let Some(root) = self.settings.library_root.clone() else {
+            return;
+        };
+        let Some(mut library) = self.library.take() else {
+            return;
+        };
         self.scanning = true;
         cx.notify();
         let task = cx.background_executor().spawn(async move {
@@ -221,9 +246,9 @@ impl Workspace {
                 this.library = Some(library);
                 this.scanning = false;
                 match report {
-                    Ok(ScanReport::RootMissing) => {
-                        this.alert("Cartella della musica non raggiungibile: mostro l'ultimo indice salvato.")
-                    }
+                    Ok(ScanReport::RootMissing) => this.alert(
+                        "Cartella della musica non raggiungibile: mostro l'ultimo indice salvato.",
+                    ),
                     Ok(ScanReport::Done { .. }) => {}
                     Err(e) => this.alert(format!("Aggiornamento della libreria non riuscito: {e}")),
                 }
@@ -251,7 +276,11 @@ impl Workspace {
             self.expanded.insert(r.clone());
         }
         self.tracks = Arc::new(tracks);
-        if self.scope.as_ref().is_some_and(|s| !self.tracks.iter().any(|t| t.path.starts_with(s))) {
+        if self
+            .scope
+            .as_ref()
+            .is_some_and(|s| !self.tracks.iter().any(|t| t.path.starts_with(s)))
+        {
             self.scope = None;
         }
         self.run_query(cx);
@@ -291,7 +320,9 @@ impl Workspace {
             return;
         }
         let last = self.results.len() as isize - 1;
-        let at = self.cursor.map_or(0, |c| (c as isize + delta).clamp(0, last)) as usize;
+        let at = self
+            .cursor
+            .map_or(0, |c| (c as isize + delta).clamp(0, last)) as usize;
         self.cursor = Some(at);
         self.list_scroll.scroll_to_item(at, ScrollStrategy::Center);
         cx.notify();
@@ -303,9 +334,16 @@ impl Workspace {
     }
 
     pub(crate) fn load_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(&ix) = self.cursor.and_then(|c| self.results.get(c)) else { return };
+        let Some(&ix) = self.cursor.and_then(|c| self.results.get(c)) else {
+            return;
+        };
         let t = &self.tracks[ix];
-        self.engine.send(Command::LoadNext(Slot { id: t.id, path: t.path.clone(), duration: t.duration_secs, start: 0.0 }));
+        self.engine.send(Command::LoadNext(Slot {
+            id: t.id,
+            path: t.path.clone(),
+            duration: t.duration_secs,
+            start: 0.0,
+        }));
         self.ensure_wave(t.id, cx);
         cx.notify();
     }
@@ -378,7 +416,8 @@ impl Workspace {
 
     pub(crate) fn change_crossfade(&mut self, by: f32, cx: &mut Context<Self>) {
         self.settings.crossfade_secs = (self.settings.crossfade_secs + by).clamp(1.0, 20.0);
-        self.engine.send(Command::SetCrossfade(self.settings.crossfade_secs));
+        self.engine
+            .send(Command::SetCrossfade(self.settings.crossfade_secs));
         self.save_settings();
         cx.notify();
     }

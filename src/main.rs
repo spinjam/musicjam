@@ -4,7 +4,9 @@ mod library;
 mod settings;
 mod ui;
 
-use gpui::{App, AppContext, Bounds, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowOptions, px, size};
+use gpui::{
+    App, AppContext, Bounds, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowOptions, px, size,
+};
 use gpui_component::Root;
 
 use actions::*;
@@ -28,7 +30,10 @@ fn main() {
             Menu {
                 name: "Libreria".into(),
                 disabled: false,
-                items: vec![MenuItem::action("Cerca", FocusSearch), MenuItem::action("Aggiorna libreria", Rescan)],
+                items: vec![
+                    MenuItem::action("Cerca", FocusSearch),
+                    MenuItem::action("Aggiorna libreria", Rescan),
+                ],
             },
             Menu {
                 name: "Riproduzione".into(),
@@ -46,9 +51,16 @@ fn main() {
         ]);
 
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(1240.), px(780.)), cx))),
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                size(px(1240.), px(780.)),
+                cx,
+            ))),
             window_min_size: Some(size(px(980.), px(560.))),
-            titlebar: Some(TitlebarOptions { title: Some("MusicJam".into()), ..Default::default() }),
+            titlebar: Some(TitlebarOptions {
+                title: Some("MusicJam".into()),
+                ..Default::default()
+            }),
             app_id: Some("musicjam".into()),
             ..Default::default()
         };
