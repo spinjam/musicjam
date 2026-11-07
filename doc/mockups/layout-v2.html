@@ -1,0 +1,107 @@
+<style>
+  .pm { font-family: -apple-system, system-ui, sans-serif; font-size: 12px; color: #1d2230; background: #f4f5f8; border-radius: 8px; overflow: hidden; border: 1px solid #d6d9e0; }
+  .pm * { box-sizing: border-box; }
+  .pm .bar { background: #e6e8ee; padding: 6px 10px; display: flex; gap: 6px; align-items: center; }
+  .pm .dot { width: 9px; height: 9px; border-radius: 50%; background: #c4c8d2; }
+  .pm .search { background: #fff; border: 1px solid #c9cdd8; border-radius: 6px; padding: 7px 10px; font-size: 13px; }
+  .pm .search b { color: #1f4fd6; }
+  .pm .row { display: grid; grid-template-columns: 1fr 1fr 40px; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #e3e5eb; }
+  .pm .row.sel { background: #dfe7ff; }
+  .pm .row .t { font-weight: 600; }
+  .pm .row .d { color: #6b7385; text-align: right; font-variant-numeric: tabular-nums; }
+  .pm .hint { color: #6b7385; font-size: 11px; padding: 6px 10px; }
+  .pm .tree { padding: 8px 6px; font-size: 11.5px; line-height: 1.75; background: #eef0f4; border-right: 1px solid #d6d9e0; }
+  .pm .tree div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pm .tree .on { background: #dfe7ff; border-radius: 4px; font-weight: 600; }
+  .pm .tree .tl { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #6b7385; font-weight: 700; }
+  .pm .tabs { display: flex; gap: 4px; padding: 8px 10px 0; }
+  .pm .tab { padding: 4px 10px; border-radius: 5px 5px 0 0; border: 1px solid #d6d9e0; border-bottom: 0; background: #e6e8ee; font-size: 11px; }
+  .pm .tab.on { background: #fff; font-weight: 600; }
+  .pm .crumb { padding: 4px 10px 6px; color: #6b7385; font-size: 11px; }
+  .pm .deck { background: #fff; border: 1px solid #d6d9e0; border-radius: 6px; padding: 8px 10px; display: grid; gap: 6px; }
+  .pm .deck .lab { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; }
+  .pm .deck.live .lab { color: #b8660b; }
+  .pm .deck.cue .lab { color: #1f4fd6; }
+  .pm .wave { height: 28px; border-radius: 4px; position: relative; background: repeating-linear-gradient(90deg, #b9c0d0 0 2px, transparent 2px 4px); }
+  .pm .deck.live .wave { background: linear-gradient(90deg, rgba(184,102,11,.35) 0 62%, transparent 62%), repeating-linear-gradient(90deg, #c9a272 0 2px, transparent 2px 4px); }
+  .pm .deck.cue .wave::after { content: ""; position: absolute; left: 18%; top: -3px; bottom: -3px; width: 2px; background: #1f4fd6; }
+  .pm .meta { display: flex; justify-content: space-between; color: #6b7385; font-variant-numeric: tabular-nums; gap: 8px; flex-wrap: wrap; }
+  .pm .btn { display: inline-block; border: 1px solid #c9cdd8; border-radius: 5px; padding: 3px 8px; background: #f7f8fb; font-size: 11px; }
+  .pm .btn.go { background: #1f4fd6; color: #fff; border-color: #1f4fd6; }
+  .pm .out { font-size: 10.5px; color: #6b7385; }
+  .pm .decks { display: grid; gap: 8px; padding: 10px; background: #eceef3; align-content: start; border-left: 1px solid #d6d9e0; }
+</style>
+
+<h2>Dove mettiamo l'albero delle cartelle?</h2>
+<p class="subtitle">La disposizione C con l'albero delle sottocartelle aggiunto a sinistra, in due modi.</p>
+
+<div class="options">
+
+  <div class="option" data-choice="c1" onclick="toggleSelect(this)">
+    <div class="letter">C1</div>
+    <div class="content">
+      <h3>Tre colonne: albero · lista · deck</h3>
+      <p>L'albero è sempre visibile in una colonna stretta. Cliccando una cartella la lista mostra i suoi brani; scrivendo nella ricerca si cerca dentro quella cartella (o in tutta la libreria se è selezionata la radice).</p>
+      <div class="pm" style="margin-top:10px">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <div style="display:grid;grid-template-columns:150px 1.4fr 1fr">
+          <div class="tree">
+            <div class="tl">Libreria</div>
+            <div>▾ Musica</div>
+            <div>&nbsp;&nbsp;▸ Arctic Monkeys</div>
+            <div>&nbsp;&nbsp;▾ Blur</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Blur (1997)</div>
+            <div class="on">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The Ballad of Darren</div>
+            <div>&nbsp;&nbsp;▸ Gorillaz</div>
+            <div>&nbsp;&nbsp;▸ Radiohead</div>
+          </div>
+          <div style="background:#fff">
+            <div style="padding:10px 10px 4px"><div class="search">cerca in "The Ballad of Darren"…</div></div>
+            <div class="crumb">Musica › Blur › The Ballad of Darren</div>
+            <div class="row"><span class="t">The Ballad</span><span>Blur</span><span class="d">5:31</span></div>
+            <div class="row"><span class="t">St. Charles Square</span><span>Blur</span><span class="d">3:56</span></div>
+            <div class="row"><span class="t">Barbaric</span><span>Blur</span><span class="d">4:20</span></div>
+            <div class="row sel"><span class="t">The Narcissist</span><span>Blur</span><span class="d">4:24</span></div>
+            <div class="hint">Doppio clic o Invio → "Prossimo"</div>
+          </div>
+          <div class="decks">
+            <div class="deck live"><span class="lab">● In onda · casse</span><div class="wave"></div><div class="meta"><span>Song 2</span><span>1:22 / 2:02</span></div></div>
+            <div style="text-align:center"><span class="btn go">↑ Crossfade 5 s</span></div>
+            <div class="deck cue"><span class="lab">◐ Prossimo · cuffia</span><div class="wave"></div><div class="meta"><span>The Narcissist</span><span>da 0:48</span></div><span class="btn">▶ Anteprima</span></div>
+            <div class="out">Casse: Uscite Mac · Cuffia: AirPods</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c2" onclick="toggleSelect(this)">
+    <div class="letter">C2</div>
+    <div class="content">
+      <h3>Due colonne, con schede Cartelle / Risultati</h3>
+      <p>Più spazio per la lista. Una scheda mostra l'albero, l'altra i brani; appena scrivi nella ricerca passa da sola ai risultati su tutta la libreria.</p>
+      <div class="pm" style="margin-top:10px">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <div style="display:grid;grid-template-columns:1.4fr 1fr">
+          <div style="background:#fff">
+            <div style="padding:10px 10px 0"><div class="search">the narcissist <b>blur</b></div></div>
+            <div class="tabs"><span class="tab">Cartelle</span><span class="tab on">Risultati (3)</span></div>
+            <div style="border-top:1px solid #d6d9e0">
+              <div class="row sel"><span class="t">The Narcissist</span><span>Blur · The Ballad of Darren</span><span class="d">4:24</span></div>
+              <div class="row"><span class="t">The Ballad</span><span>Blur · The Ballad of Darren</span><span class="d">5:31</span></div>
+              <div class="row"><span class="t">Beetlebum</span><span>Blur · Blur</span><span class="d">5:04</span></div>
+              <div class="hint">Doppio clic o Invio → "Prossimo" · Esc torna alle cartelle</div>
+            </div>
+          </div>
+          <div class="decks">
+            <div class="deck live"><span class="lab">● In onda · casse</span><div class="wave"></div><div class="meta"><span>Song 2</span><span>1:22 / 2:02</span></div></div>
+            <div style="text-align:center"><span class="btn go">↑ Crossfade 5 s</span></div>
+            <div class="deck cue"><span class="lab">◐ Prossimo · cuffia</span><div class="wave"></div><div class="meta"><span>The Narcissist</span><span>da 0:48</span></div><span class="btn">▶ Anteprima</span></div>
+            <div class="out">Casse: Uscite Mac · Cuffia: AirPods</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>

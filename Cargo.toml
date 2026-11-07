@@ -1,0 +1,45 @@
+[package]
+name = "musicjam"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "A local-files music player with headphone cue and crossfade"
+publish = false
+
+# Same GPUI stack as filejam and dbdelve: gpui is pre-1.0 and breaks on minor
+# bumps, so pins are exact and Cargo.lock is committed.
+[dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.9" }
+gpui-component = { version = "=0.8.0" }
+gpui_platform = { version = "=0.3.9", package = "gpui-pre-platform", features = ["font-kit"] }
+
+# Audio: cpal for CoreAudio output, symphonia (pure Rust) to decode, rubato to
+# resample to whatever rate each device runs at, rtrb as the lock-free hand-off
+# to the real-time callback.
+cpal = "0.15"
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "wav", "pcm"] }
+rubato = "0.16"
+rtrb = "0.3"
+crossbeam-channel = "0.5"
+
+# Library
+lofty = "0.22"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+walkdir = "2.5"
+deunicode = "1.6"
+
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+# GPUI lays out and shapes text on the CPU every frame; unoptimized it drops
+# frames the moment a long list scrolls. Decoding wants it too.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
