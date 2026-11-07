@@ -187,6 +187,16 @@ impl Master {
     }
 
     fn handle(&mut self, cmd: Command) {
+        // A device that was absent at launch (Bluetooth not yet connected,
+        // a DAC plugged in later) gets another try the moment it is needed.
+        if matches!(
+            cmd,
+            Command::Play | Command::Crossfade | Command::TestTone(Role::Master)
+        ) && self.output.is_none()
+            && let Some(name) = self.device.clone()
+        {
+            self.open_device(Some(name));
+        }
         let fx = match cmd {
             Command::SetDevices { master, cue } => {
                 let _ = self.cue.send(CueCommand::SetDevice(cue));
@@ -403,8 +413,23 @@ fn add(mix: &mut [f32], voice: &[f32], gain: f32) {
     }
 }
 
+fn open_cue(name: &str, events: &Sender<EngineEvent>) -> Option<Output> {
+    match Output::open(name) {
+        Ok(out) => Some(out),
+        Err(_) if !output::list_devices().iter().any(|d| d == name) => {
+            let _ = events.send(EngineEvent::DeviceMissing(Role::Cue));
+            None
+        }
+        Err(e) => {
+            let _ = events.send(EngineEvent::Error(format!("Cuffia «{name}»: {e}")));
+            None
+        }
+    }
+}
+
 fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sender<Command>) {
     let mut output: Option<Output> = None;
+    let mut device: Option<String> = None;
     let mut preview: Option<(Source, f32)> = None;
     let mut tone: Option<TestTone> = None;
     let mut volume = Volume::new(1.0);
@@ -423,16 +448,26 @@ fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sen
                 Err(crossbeam_channel::TryRecvError::Disconnected) => return,
             }
         };
+        if matches!(cmd, Some(CueCommand::Start { .. } | CueCommand::TestTone))
+            && output.is_none()
+            && let Some(name) = &device
+        {
+            output = open_cue(name, &events);
+        }
         match cmd {
             Some(CueCommand::SetDevice(name)) => {
-                output = None;
+                // Close the old stream before opening the new one: it may be
+                // the same device.
+                drop(output.take());
                 preview = None;
-                match name.map(|n| Output::open(&n)) {
-                    Some(Ok(out)) => output = Some(out),
-                    Some(Err(_)) | None => {
+                device = name;
+                output = match &device {
+                    Some(name) => open_cue(name, &events),
+                    None => {
                         let _ = events.send(EngineEvent::DeviceMissing(Role::Cue));
+                        None
                     }
-                }
+                };
             }
             Some(CueCommand::Start { path, start }) => match &output {
                 Some(out) => match Source::open(&path, out.rate, start) {

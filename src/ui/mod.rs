@@ -217,11 +217,22 @@ impl Workspace {
                 EngineEvent::DeviceLost(Role::Master) => {
                     self.alert("Uscita casse scollegata: riproduzione fermata.")
                 }
-                EngineEvent::DeviceMissing(Role::Master) => {
-                    self.alert("Uscita casse non disponibile. Sceglila in Impostazioni.")
-                }
-                EngineEvent::DeviceMissing(Role::Cue) => {
-                    self.alert("Uscita cuffia non disponibile. Sceglila in Impostazioni.")
+                EngineEvent::DeviceMissing(role) => {
+                    let (what, name) = match role {
+                        Role::Master => ("Casse", &self.settings.master_device),
+                        Role::Cue => ("Cuffia", &self.settings.cue_device),
+                    };
+                    let msg = match name {
+                        Some(n) => format!(
+                            "{what}: «{n}» non è collegato al Mac. Collegalo (per il Bluetooth: \
+                             menu Bluetooth di macOS) e riprova, oppure scegli un'altra uscita in \
+                             Impostazioni › Audio."
+                        ),
+                        None => format!(
+                            "{what}: nessuna uscita scelta. Sceglila in Impostazioni › Audio."
+                        ),
+                    };
+                    self.alert(msg)
                 }
                 EngineEvent::Error(e) => self.alert(e),
             }
@@ -415,6 +426,15 @@ impl Workspace {
         } else {
             self.engine.send(Command::Play);
         }
+    }
+
+    pub(crate) fn toggle_preview(&mut self, cx: &mut Context<Self>) {
+        if self.snapshot.next.is_none() {
+            self.alert("Il deck B è vuoto: carica un brano con doppio clic (o Invio) nella lista, poi premi CUE.");
+            cx.notify();
+            return;
+        }
+        self.engine.send(Command::TogglePreview);
     }
 
     pub(crate) fn nudge(&mut self, by: f32) {

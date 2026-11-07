@@ -137,9 +137,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &LoadSelected, _, cx| this.load_selected(cx)))
             .on_action(cx.listener(|this, _: &PlayPause, _, _| this.play_pause()))
             .on_action(cx.listener(|this, _: &Stop, _, _| this.send(Command::Stop)))
-            .on_action(
-                cx.listener(|this, _: &TogglePreview, _, _| this.send(Command::TogglePreview)),
-            )
+            .on_action(cx.listener(|this, _: &TogglePreview, _, cx| this.toggle_preview(cx)))
             .on_action(cx.listener(|this, _: &Crossfade, _, _| this.send(Command::Crossfade)))
             .on_action(cx.listener(|this, _: &NudgeBack, _, _| this.nudge(-1.0)))
             .on_action(cx.listener(|this, _: &NudgeForward, _, _| this.nudge(1.0)))
@@ -594,9 +592,9 @@ impl Workspace {
                         }
                         .flex_1()
                         .h(px(38.))
-                        .on_click(cx.listener(
-                            |this, _: &ClickEvent, _, _| this.send(Command::TogglePreview),
-                        )),
+                        .on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_preview(cx)),
+                        ),
                     )
                     .child(
                         button("nudge-back", "◀ 1S", p)
