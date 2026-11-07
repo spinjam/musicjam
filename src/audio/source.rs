@@ -196,12 +196,12 @@ impl ResampleState {
         let skip = self.delay.min(frames);
         self.delay -= skip;
         let limit = (self.frames_in as f64 * self.ratio).round() as u64;
-        for i in skip..frames {
+        for (&l, &r) in out[0][skip..frames].iter().zip(&out[1][skip..frames]) {
             if self.frames_out >= limit {
                 break;
             }
-            ready.push_back(out[0][i]);
-            ready.push_back(out[1][i]);
+            ready.push_back(l);
+            ready.push_back(r);
             self.frames_out += 1;
         }
     }
