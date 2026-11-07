@@ -9,11 +9,16 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 /// nothing is played live against it.
 const RING_SECS: f32 = 0.25;
 
+/// The name macOS shows for a device, which is what settings remember.
+fn device_name(d: &cpal::Device) -> Option<String> {
+    d.description().ok().map(|desc| desc.name().to_string())
+}
+
 pub fn list_devices() -> Vec<String> {
     let host = cpal::default_host();
     let mut names: Vec<String> = host
         .output_devices()
-        .map(|it| it.filter_map(|d| d.name().ok()).collect())
+        .map(|it| it.filter_map(|d| device_name(&d)).collect())
         .unwrap_or_default();
     names.sort();
     names.dedup();
@@ -23,7 +28,7 @@ pub fn list_devices() -> Vec<String> {
 pub fn default_device() -> Option<String> {
     cpal::default_host()
         .default_output_device()
-        .and_then(|d| d.name().ok())
+        .and_then(|d| device_name(&d))
 }
 
 /// An open output device. The render thread pushes interleaved stereo into
@@ -41,7 +46,7 @@ impl Output {
         let host = cpal::default_host();
         let device = host
             .output_devices()?
-            .find(|d| d.name().is_ok_and(|n| n == name))
+            .find(|d| device_name(d).is_some_and(|n| n == name))
             .ok_or_else(|| anyhow!("device not found: {name}"))?;
         let supported = device.default_output_config()?;
         if supported.sample_format() != cpal::SampleFormat::F32 {
@@ -51,7 +56,7 @@ impl Output {
             ));
         }
         let config: cpal::StreamConfig = supported.into();
-        let rate = config.sample_rate.0;
+        let rate = config.sample_rate;
         let channels = config.channels as usize;
 
         let (producer, mut consumer) =
@@ -59,7 +64,7 @@ impl Output {
         let lost = Arc::new(AtomicBool::new(false));
         let lost_cb = lost.clone();
         let stream = device.build_output_stream(
-            &config,
+            config,
             move |data: &mut [f32], _| {
                 for frame in data.chunks_mut(channels) {
                     let (l, r) = match (consumer.pop(), consumer.pop()) {
