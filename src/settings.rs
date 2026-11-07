@@ -15,6 +15,9 @@ pub struct Settings {
     pub master_device: Option<String>,
     pub cue_device: Option<String>,
     pub crossfade_secs: f32,
+    /// Slider levels, 0..=1.
+    pub master_volume: f32,
+    pub cue_volume: f32,
 }
 
 impl Default for Settings {
@@ -24,6 +27,8 @@ impl Default for Settings {
             master_device: None,
             cue_device: None,
             crossfade_secs: DEFAULT_CROSSFADE_SECS,
+            master_volume: 1.0,
+            cue_volume: 0.8,
         }
     }
 }
@@ -73,8 +78,15 @@ mod tests {
             master_device: Some("MacBook Pro Speakers".into()),
             cue_device: Some("AirPods".into()),
             crossfade_secs: 7.5,
+            master_volume: 0.6,
+            cue_volume: 0.4,
         };
         save_to(dir.path(), &settings).unwrap();
         assert_eq!(load_from(dir.path()), settings);
+
+        // A file written before a setting existed still loads, with the default.
+        std::fs::write(dir.path().join("settings.toml"), "crossfade_secs = 3.0\n").unwrap();
+        let old = load_from(dir.path());
+        assert_eq!((old.crossfade_secs, old.master_volume), (3.0, 1.0));
     }
 }

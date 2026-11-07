@@ -12,6 +12,8 @@ use gpui::{
     UniformListScrollHandle, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
+use gpui_component::resizable::ResizableState;
+use gpui_component::slider::{SliderEvent, SliderState};
 
 use crate::audio::engine::{Command, Engine, EngineEvent, Role, Snapshot};
 use crate::audio::transport::Slot;
@@ -55,6 +57,9 @@ pub struct Workspace {
     alerts: Vec<SharedString>,
     show_settings: bool,
     devices: Vec<String>,
+    split: Entity<ResizableState>,
+    master_volume: Entity<SliderState>,
+    cue_volume: Entity<SliderState>,
 }
 
 impl Workspace {
@@ -94,6 +99,11 @@ impl Workspace {
         })
         .detach();
 
+        engine.send(Command::SetVolume(Role::Master, settings.master_volume));
+        engine.send(Command::SetVolume(Role::Cue, settings.cue_volume));
+        let master_volume = Self::volume_slider(Role::Master, settings.master_volume, cx);
+        let cue_volume = Self::volume_slider(Role::Cue, settings.cue_volume, cx);
+
         let mut alerts = Vec::new();
         let library = match Library::open(&settings::support_dir().join("library.sqlite")) {
             Ok(lib) => Some(lib),
@@ -126,6 +136,9 @@ impl Workspace {
             alerts,
             show_settings: false,
             devices: output::list_devices(),
+            split: cx.new(|_| ResizableState::default()),
+            master_volume,
+            cue_volume,
         };
         this.refresh_tracks(cx);
         this.rescan(cx);
@@ -443,6 +456,35 @@ impl Workspace {
             }
         })
         .detach();
+    }
+
+    /// A 0..100 slider driving one output's volume. It moves the sound while
+    /// dragged and is saved when let go.
+    fn volume_slider(role: Role, level: f32, cx: &mut Context<Self>) -> Entity<SliderState> {
+        let slider = cx.new(|_| {
+            SliderState::new()
+                .min(0.)
+                .max(100.)
+                .step(1.)
+                .default_value(level * 100.)
+        });
+        cx.subscribe(&slider, move |this, _, event: &SliderEvent, cx| {
+            let (level, done) = match event {
+                SliderEvent::Change(v) => (v.start() / 100., false),
+                SliderEvent::Release(v) => (v.start() / 100., true),
+            };
+            this.engine.send(Command::SetVolume(role, level));
+            match role {
+                Role::Master => this.settings.master_volume = level,
+                Role::Cue => this.settings.cue_volume = level,
+            }
+            if done {
+                this.save_settings();
+            }
+            cx.notify();
+        })
+        .detach();
+        slider
     }
 
     fn save_settings(&mut self) {

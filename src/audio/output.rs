@@ -109,6 +109,47 @@ impl Output {
     }
 }
 
+/// Gain for a volume slider at `level` (0..=1). Squared, because loudness
+/// is heard roughly logarithmically: a linear slider would do all its work in
+/// the bottom tenth of its travel.
+pub fn volume_gain(level: f32) -> f32 {
+    let l = level.clamp(0.0, 1.0);
+    l * l
+}
+
+/// An output's volume, moved in a ramp across one block so a slider drag
+/// does not click.
+pub struct Volume {
+    current: f32,
+    target: f32,
+}
+
+impl Volume {
+    pub fn new(level: f32) -> Self {
+        let g = volume_gain(level);
+        Self {
+            current: g,
+            target: g,
+        }
+    }
+
+    pub fn set(&mut self, level: f32) {
+        self.target = volume_gain(level);
+    }
+
+    /// Scales `buf` (interleaved stereo) from the current gain to the target.
+    pub fn apply(&mut self, buf: &mut [f32]) {
+        let frames = (buf.len() / 2).max(1) as f32;
+        let step = (self.target - self.current) / frames;
+        for f in buf.as_chunks_mut::<2>().0 {
+            self.current += step;
+            f[0] *= self.current;
+            f[1] *= self.current;
+        }
+        self.current = self.target;
+    }
+}
+
 /// A short tone, first on the left then on the right, so the listener can
 /// tell which device this is and that its channels are the right way round.
 pub struct TestTone {
@@ -145,6 +186,21 @@ impl TestTone {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn volume_ramps_to_target() {
+        assert_eq!(volume_gain(0.5), 0.25);
+        let mut v = Volume::new(1.0);
+        v.set(0.0);
+        let mut buf = vec![1.0; 8];
+        v.apply(&mut buf);
+        // No jump: the gain falls frame by frame and ends at zero.
+        assert!(buf[0] > buf[2] && buf[2] > buf[4]);
+        assert_eq!(buf[6], 0.0);
+        let mut buf = vec![1.0; 4];
+        v.apply(&mut buf);
+        assert_eq!(buf, [0.0; 4]);
+    }
 
     #[test]
     fn test_tone_left_then_right() {

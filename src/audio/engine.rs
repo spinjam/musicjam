@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
-use super::output::{Output, TestTone};
+use super::output::{self, Output, TestTone, Volume};
 use super::source::Source;
 use super::transport::{Effect, Slot, Transport};
 
@@ -39,6 +39,8 @@ pub enum Command {
     Crossfade,
     Seek(f32),
     TestTone(Role),
+    /// Slider level 0..=1 for one output.
+    SetVolume(Role, f32),
     /// From the cue thread: the preview ran to the end of the file.
     PreviewEnded,
 }
@@ -48,6 +50,7 @@ enum CueCommand {
     Start { path: PathBuf, start: f32 },
     Stop,
     TestTone,
+    SetVolume(f32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,6 +119,7 @@ struct Master {
     tone: Option<TestTone>,
     events: Sender<EngineEvent>,
     cue: Sender<CueCommand>,
+    volume: Volume,
     mix: Vec<f32>,
     voice: Vec<f32>,
 }
@@ -131,6 +135,7 @@ impl Master {
             tone: None,
             events,
             cue,
+            volume: Volume::new(1.0),
             mix: vec![0.0; BLOCK_FRAMES * 2],
             voice: vec![0.0; BLOCK_FRAMES * 2],
         }
@@ -215,6 +220,14 @@ impl Master {
                 vec![]
             }
             Command::Stop => self.transport.stop(),
+            Command::SetVolume(Role::Master, level) => {
+                self.volume.set(level);
+                vec![]
+            }
+            Command::SetVolume(Role::Cue, level) => {
+                let _ = self.cue.send(CueCommand::SetVolume(level));
+                vec![]
+            }
             Command::Seek(secs) => self.transport.seek(secs),
             Command::TestTone(Role::Master) => {
                 if let Some(out) = &self.output {
@@ -248,10 +261,12 @@ impl Master {
         };
         match Output::open(&name) {
             Ok(out) => self.output = Some(out),
-            Err(e) => {
-                self.emit(EngineEvent::DeviceMissing(Role::Master));
-                self.emit(EngineEvent::Error(e.to_string()));
+            // A device that is simply not plugged in is reported as missing;
+            // only a real failure to open one carries its own message.
+            Err(_) if !output::list_devices().contains(&name) => {
+                self.emit(EngineEvent::DeviceMissing(Role::Master))
             }
+            Err(e) => self.emit(EngineEvent::Error(format!("Casse «{name}»: {e}"))),
         }
     }
 
@@ -330,6 +345,9 @@ impl Master {
             }
             self.apply(fx);
         }
+        // The test tone stays at a fixed level: it must be heard even with
+        // the volume down.
+        self.volume.apply(&mut self.mix);
         if let Some(tone) = &mut self.tone
             && !tone.mix_into(&mut self.mix)
         {
@@ -383,6 +401,7 @@ fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sen
     let mut output: Option<Output> = None;
     let mut preview: Option<(Source, f32)> = None;
     let mut tone: Option<TestTone> = None;
+    let mut volume = Volume::new(1.0);
     let mut buf = vec![0.0f32; BLOCK_FRAMES * 2];
     let mut last_pos = Instant::now();
     loop {
@@ -426,6 +445,7 @@ fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sen
                 preview = None;
                 let _ = events.send(EngineEvent::PreviewPos(None));
             }
+            Some(CueCommand::SetVolume(level)) => volume.set(level),
             Some(CueCommand::TestTone) => match &output {
                 Some(out) => tone = Some(TestTone::new(out.rate)),
                 None => {
@@ -457,6 +477,7 @@ fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sen
                     let _ = events.send(EngineEvent::PreviewPos(None));
                 }
             }
+            volume.apply(&mut buf);
             if let Some(t) = &mut tone
                 && !t.mix_into(&mut buf)
             {

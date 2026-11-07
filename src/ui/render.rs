@@ -8,6 +8,8 @@ use gpui::{
     div, px, uniform_list,
 };
 use gpui_component::input::Input;
+use gpui_component::resizable::{h_resizable, resizable_panel};
+use gpui_component::slider::Slider;
 
 use super::theme::{Palette, palette};
 use super::{Deck, WAVE_BARS, Workspace};
@@ -15,7 +17,9 @@ use crate::actions::*;
 use crate::audio::engine::{Command, DeckInfo, Role};
 
 const TREE_WIDTH: f32 = 230.;
+const TREE_RANGE: (f32, f32) = (150., 480.);
 const DECKS_WIDTH: f32 = 360.;
+const DECKS_RANGE: (f32, f32) = (300., 620.);
 const ROW_HEIGHT: f32 = 30.;
 
 fn clock(secs: f32) -> String {
@@ -63,9 +67,23 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NudgeBackFine, _, _| this.nudge(-0.1)))
             .on_action(cx.listener(|this, _: &NudgeForwardFine, _, _| this.nudge(0.1)))
             .on_action(cx.listener(|this, _: &Rescan, _, cx| this.rescan(cx)))
-            .child(self.render_tree(p, cx))
-            .child(self.render_list(p, cx))
-            .child(self.render_decks(p, cx))
+            .child(
+                h_resizable("columns")
+                    .with_state(&self.split)
+                    .child(
+                        resizable_panel()
+                            .size(px(TREE_WIDTH))
+                            .size_range(px(TREE_RANGE.0)..px(TREE_RANGE.1))
+                            .child(self.render_tree(p, cx)),
+                    )
+                    .child(resizable_panel().child(self.render_list(p, cx)))
+                    .child(
+                        resizable_panel()
+                            .size(px(DECKS_WIDTH))
+                            .size_range(px(DECKS_RANGE.0)..px(DECKS_RANGE.1))
+                            .child(self.render_decks(p, cx)),
+                    ),
+            )
             .when(self.show_settings, |d| d.child(self.render_settings(p, cx)))
     }
 }
@@ -109,14 +127,33 @@ fn label(text: impl Into<SharedString>, color: Hsla) -> gpui::Div {
         .child(text.into())
 }
 
+fn volume_row(
+    slider: &gpui::Entity<gpui_component::slider::SliderState>,
+    level: f32,
+    p: Palette,
+) -> gpui::Div {
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .text_size(px(11.5))
+        .text_color(p.muted)
+        .child(div().w(px(50.)).child("Volume"))
+        .child(div().flex_1().child(Slider::new(slider)))
+        .child(
+            div()
+                .w(px(38.))
+                .text_right()
+                .child(format!("{:.0}%", level * 100.)),
+        )
+}
+
 impl Workspace {
     fn render_tree(&self, p: Palette, cx: &mut Context<Self>) -> AnyElement {
         let mut col = div()
-            .w(px(TREE_WIDTH))
-            .h_full()
+            .size_full()
             .flex()
             .flex_col()
-            .flex_none()
             .bg(p.panel)
             .border_r_1()
             .border_color(p.border);
@@ -285,7 +322,7 @@ impl Workspace {
         };
         div()
             .flex_1()
-            .min_w(px(320.))
+            .w_full()
             .h_full()
             .flex()
             .flex_col()
@@ -411,7 +448,7 @@ impl Workspace {
                     .rounded_md()
                     .bg(p.warn_bg)
                     .text_size(px(12.))
-                    .child(div().flex_1().child(a.clone()))
+                    .child(div().flex_1().min_w_0().child(a.clone()))
                     .child(div().text_color(p.muted).cursor_pointer().child("✕"))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         if i < this.alerts.len() {
@@ -513,9 +550,7 @@ impl Workspace {
             self.settings.cue_device.as_deref().unwrap_or("—")
         );
         div()
-            .w(px(DECKS_WIDTH))
-            .flex_none()
-            .h_full()
+            .size_full()
             .flex()
             .flex_col()
             .gap_3()
@@ -524,9 +559,13 @@ impl Workspace {
             .border_l_1()
             .border_color(p.border)
             .children(alerts)
-            .child(on_air)
+            .child(on_air.child(volume_row(
+                &self.master_volume,
+                self.settings.master_volume,
+                p,
+            )))
             .child(fade)
-            .child(next)
+            .child(next.child(volume_row(&self.cue_volume, self.settings.cue_volume, p)))
             .child(div().flex_1())
             .child(div().text_size(px(11.)).text_color(p.muted).child(outputs))
             .child(
