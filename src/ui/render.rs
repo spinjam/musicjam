@@ -12,7 +12,7 @@ use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::slider::{Slider, SliderState};
 
 use super::theme::{CHROME_FONT, DISPLAY_FONT, Palette, RADIUS, Theme};
-use super::{Deck, WAVE_BARS, Workspace};
+use super::{Deck, SettingsTab, WAVE_BARS, Workspace};
 use crate::actions::*;
 use crate::audio::engine::{Command, DeckInfo, Role};
 
@@ -22,6 +22,22 @@ const DECKS_WIDTH: f32 = 380.;
 const DECKS_RANGE: (f32, f32) = (320., 640.);
 const ROW_HEIGHT: f32 = 30.;
 const WAVE_HEIGHT: f32 = 64.;
+
+/// The shortcuts tab: the same keys `actions::bindings` binds.
+const KEYS: [(&str, &str); 12] = [
+    ("⌘F", "Cerca"),
+    ("↑ ↓", "Scegli un brano"),
+    ("Invio / doppio clic", "Carica nel deck B"),
+    ("⌘P", "Play / pausa del deck A"),
+    ("⌘.", "Stop"),
+    ("⌘E", "Anteprima in cuffia (cue)"),
+    ("⌘Invio", "Crossfade A → B"),
+    ("⌥← ⌥→", "Punto di partenza ±1 s"),
+    ("⌥⇧← ⌥⇧→", "Punto di partenza ±0,1 s"),
+    ("⌘R", "Aggiorna la libreria"),
+    ("⌘T", "Tema successivo"),
+    ("⌘,  /  Esc", "Apri / chiudi le impostazioni"),
+];
 
 fn clock(secs: f32) -> String {
     let s = secs.max(0.0) as u32;
@@ -1002,81 +1018,159 @@ impl Workspace {
             .child(
                 div()
                     .id("settings")
-                    .w(px(600.))
-                    .max_h(px(720.))
-                    .overflow_y_scroll()
+                    .w(px(640.))
+                    .h(px(560.))
                     .flex()
                     .flex_col()
-                    .gap_5()
-                    .p_5()
                     .rounded(px(RADIUS))
                     .bg(p.card)
                     .border_1()
                     .border_color(p.border)
                     .child(
                         div()
-                            .font_family(DISPLAY_FONT)
-                            .text_size(px(18.))
-                            .font_weight(FontWeight::BOLD)
-                            .child("IMPOSTAZIONI"),
-                    )
-                    .child(
-                        div()
                             .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(caps("CARTELLA DELLA MUSICA", p.muted))
-                            .child(div().child(root))
-                            .child(div().flex().child(button("pick", "SCEGLI CARTELLA…", p).on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.pick_library(cx)),
-                            ))),
-                    )
-                    .child(section("DECK A · CASSE (MASTER)", "test-master", Role::Master, p.live, cx))
-                    .child(section("DECK B · CUFFIA (CUE)", "test-cue", Role::Cue, p.cue, cx))
-                    .when(same, |d| {
-                        d.child(div().p_2().rounded(px(RADIUS)).bg(p.warn_bg).child(
-                            "Casse e cuffia sono lo stesso dispositivo: l'anteprima si sentirebbe anche dalle casse.",
-                        ))
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(caps("DURATA DEL CROSSFADE", p.muted).flex_1())
-                            .child(button("fade-down", "−", p).on_click(cx.listener(
-                                |this, _: &ClickEvent, _, cx| this.change_crossfade(-0.5, cx),
-                            )))
+                            .items_end()
+                            .gap_4()
+                            .px_5()
+                            .pt_4()
+                            .border_b_1()
+                            .border_color(p.border)
                             .child(
                                 div()
-                                    .w(px(64.))
-                                    .text_center()
+                                    .pb_3()
                                     .font_family(DISPLAY_FONT)
-                                    .child(format!("{:.1} s", self.settings.crossfade_secs)),
+                                    .text_size(px(16.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child("IMPOSTAZIONI"),
                             )
-                            .child(button("fade-up", "+", p).on_click(cx.listener(
-                                |this, _: &ClickEvent, _, cx| this.change_crossfade(0.5, cx),
-                            ))),
+                            .child(div().flex().children(SettingsTab::ALL.into_iter().map(|tab| {
+                                let on = tab == self.settings_tab;
+                                div()
+                                    .id(tab.label())
+                                    .px_3()
+                                    .pb_2()
+                                    .pt_1()
+                                    .border_b_2()
+                                    .border_color(if on { p.cue } else { gpui::transparent_black() })
+                                    .font_family(DISPLAY_FONT)
+                                    .text_size(px(11.5))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(if on { p.text } else { p.muted })
+                                    .cursor_pointer()
+                                    .hover(|s| s.text_color(p.text))
+                                    .child(tab.label())
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_tab(tab, cx)))
+                            }))),
                     )
                     .child(
                         div()
+                            .id("settings-body")
+                            .flex_1()
+                            .overflow_y_scroll()
                             .flex()
                             .flex_col()
-                            .gap_2()
-                            .child(caps("TEMA  ·  ⌘T PER CAMBIARE AL VOLO", p.muted))
-                            .child(div().flex().flex_wrap().gap_2().children(themes)),
+                            .gap_5()
+                            .p_5()
+                            .child(match self.settings_tab {
+                                SettingsTab::Library => div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(caps("CARTELLA DELLA MUSICA", p.muted))
+                                    .child(div().child(root))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .gap_2()
+                                            .child(button("pick", "SCEGLI CARTELLA…", p).on_click(
+                                                cx.listener(|this, _: &ClickEvent, _, cx| this.pick_library(cx)),
+                                            ))
+                                            .child(button("rescan-settings", "↻ AGGIORNA LIBRERIA", p).on_click(
+                                                cx.listener(|this, _: &ClickEvent, _, cx| this.rescan(cx)),
+                                            )),
+                                    )
+                                    .child(div().text_color(p.muted).text_size(px(12.)).child(format!(
+                                        "{} brani nell'indice. Formati letti: MP3, FLAC, WAV.",
+                                        self.tracks.len()
+                                    )))
+                                    .into_any_element(),
+                                SettingsTab::Audio => div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_5()
+                                    .child(section("DECK A · CASSE (MASTER)", "test-master", Role::Master, p.live, cx))
+                                    .child(section("DECK B · CUFFIA (CUE)", "test-cue", Role::Cue, p.cue, cx))
+                                    .when(same, |d| {
+                                        d.child(div().p_2().rounded(px(RADIUS)).bg(p.warn_bg).child(
+                                            "Casse e cuffia sono lo stesso dispositivo: l'anteprima si sentirebbe anche dalle casse.",
+                                        ))
+                                    })
+                                    .child(div().flex().child(button("refresh-devices", "↻ AGGIORNA DISPOSITIVI", p).on_click(
+                                        cx.listener(|this, _: &ClickEvent, _, cx| this.show_tab(SettingsTab::Audio, cx)),
+                                    )))
+                                    .into_any_element(),
+                                SettingsTab::Mix => div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(caps("DURATA DEL CROSSFADE", p.muted).flex_1())
+                                            .child(button("fade-down", "−", p).on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| this.change_crossfade(-0.5, cx),
+                                            )))
+                                            .child(
+                                                div()
+                                                    .w(px(64.))
+                                                    .text_center()
+                                                    .font_family(DISPLAY_FONT)
+                                                    .child(format!("{:.1} s", self.settings.crossfade_secs)),
+                                            )
+                                            .child(button("fade-up", "+", p).on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| this.change_crossfade(0.5, cx),
+                                            ))),
+                                    )
+                                    .child(div().text_color(p.muted).text_size(px(12.)).child(
+                                        "Vale per il pulsante Crossfade e per il passaggio automatico, che parte da solo in modo da finire insieme al brano in onda.",
+                                    ))
+                                    .into_any_element(),
+                                SettingsTab::Look => div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(caps("TEMA  ·  ⌘T PER CAMBIARE AL VOLO", p.muted))
+                                    .child(div().flex().flex_wrap().gap_2().children(themes))
+                                    .into_any_element(),
+                                SettingsTab::Keys => div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .children(KEYS.iter().map(|(k, what)| {
+                                        div()
+                                            .flex()
+                                            .gap_3()
+                                            .py_1()
+                                            .border_b_1()
+                                            .border_color(p.border)
+                                            .child(div().w(px(150.)).font_family(DISPLAY_FONT).text_color(p.cue).child(*k))
+                                            .child(div().child(*what))
+                                    }))
+                                    .into_any_element(),
+                            }),
                     )
                     .child(
                         div()
                             .flex()
-                            .justify_between()
-                            .child(button("refresh-devices", "↻ DISPOSITIVI", p).on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
-                            ))
+                            .justify_end()
+                            .px_5()
+                            .py_3()
+                            .border_t_1()
+                            .border_color(p.border)
                             .child(filled("close-settings", "FATTO", p.cue, p).on_click(
-                                cx.listener(|this, _: &ClickEvent, window, cx| {
-                                    this.close_settings(window, cx)
-                                }),
+                                cx.listener(|this, _: &ClickEvent, window, cx| this.close_settings(window, cx)),
                             )),
                     ),
             )

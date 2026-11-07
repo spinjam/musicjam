@@ -28,6 +28,35 @@ pub const WAVE_BARS: usize = 160;
 const POLL_EVERY: Duration = Duration::from_millis(40);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SettingsTab {
+    Library,
+    Audio,
+    Mix,
+    Look,
+    Keys,
+}
+
+impl SettingsTab {
+    pub const ALL: [SettingsTab; 5] = [
+        Self::Library,
+        Self::Audio,
+        Self::Mix,
+        Self::Look,
+        Self::Keys,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Library => "LIBRERIA",
+            Self::Audio => "AUDIO",
+            Self::Mix => "MIX",
+            Self::Look => "ASPETTO",
+            Self::Keys => "TASTI",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Deck {
     OnAir,
     Next,
@@ -58,6 +87,7 @@ pub struct Workspace {
     waves_pending: HashSet<i64>,
     alerts: Vec<SharedString>,
     show_settings: bool,
+    settings_tab: SettingsTab,
     devices: Vec<String>,
     split: Entity<ResizableState>,
     master_volume: Entity<SliderState>,
@@ -145,6 +175,7 @@ impl Workspace {
             waves_pending: HashSet::new(),
             alerts,
             show_settings: false,
+            settings_tab: SettingsTab::Library,
             devices: output::list_devices(),
             split: cx.new(|_| ResizableState::default()),
             master_volume,
@@ -415,6 +446,14 @@ impl Workspace {
     pub(crate) fn open_settings(&mut self, cx: &mut Context<Self>) {
         self.devices = output::list_devices();
         self.show_settings = true;
+        cx.notify();
+    }
+
+    pub(crate) fn show_tab(&mut self, tab: SettingsTab, cx: &mut Context<Self>) {
+        if tab == SettingsTab::Audio {
+            self.devices = output::list_devices();
+        }
+        self.settings_tab = tab;
         cx.notify();
     }
 

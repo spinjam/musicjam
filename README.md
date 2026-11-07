@@ -6,7 +6,7 @@ Player per macOS, per la musica che hai sul disco (MP3, FLAC, WAV). Ricerca ista
 cargo run --release
 ```
 
-Al primo avvio apri **Impostazioni** (⌘,) e scegli la cartella della musica, l'uscita **Casse** e l'uscita **Cuffia**. Il pulsante **Prova** accanto a ogni uscita suona un breve segnale, prima a sinistra e poi a destra, solo su quel dispositivo.
+Al primo avvio apri **Impostazioni** (⌘,): nella scheda LIBRERIA scegli la cartella della musica, nella scheda AUDIO le uscite **Casse** e **Cuffia**. Le altre schede sono MIX (durata del crossfade), ASPETTO (tema) e TASTI (le scorciatoie). Il pulsante **Prova** accanto a ogni uscita suona un breve segnale, prima a sinistra e poi a destra, solo su quel dispositivo.
 
 ## Come si usa
 
