@@ -22,7 +22,6 @@ pub struct Source {
     decoder: Box<dyn Decoder>,
     track_id: u32,
     in_rate: u32,
-    duration_secs: f32,
     /// Decoded frames still to drop after an accurate seek.
     skip_frames: u64,
     resampler: Option<ResampleState>,
@@ -69,14 +68,6 @@ impl Source {
         let in_rate = params
             .sample_rate
             .ok_or_else(|| anyhow!("unknown sample rate"))?;
-        let duration_secs = match (params.n_frames, params.time_base) {
-            (Some(n), Some(tb)) => {
-                let t = tb.calc_time(n);
-                t.seconds as f32 + t.frac as f32
-            }
-            (Some(n), None) => n as f32 / in_rate as f32,
-            _ => 0.0,
-        };
         let decoder = symphonia::default::get_codecs().make(&params, &DecoderOptions::default())?;
 
         let mut skip_frames = 0;
@@ -114,16 +105,11 @@ impl Source {
             decoder,
             track_id,
             in_rate,
-            duration_secs,
             skip_frames,
             resampler,
             ready: VecDeque::new(),
             eof: false,
         })
-    }
-
-    pub fn duration_secs(&self) -> f32 {
-        self.duration_secs
     }
 
     pub fn in_rate(&self) -> u32 {
@@ -251,8 +237,18 @@ pub mod tests {
 
     /// A 16-bit PCM stereo WAV of a 440 Hz sine.
     pub fn write_wav(path: &Path, rate: u32, secs: f32) {
-        let frames = (rate as f32 * secs) as u32;
-        let data_len = frames * 4;
+        let frames = (rate as f32 * secs) as usize;
+        let samples: Vec<i16> = (0..frames)
+            .map(|i| {
+                ((i as f32 / rate as f32 * 440.0 * std::f32::consts::TAU).sin() * 16000.0) as i16
+            })
+            .collect();
+        write_wav_samples(path, rate, &samples);
+    }
+
+    /// A 16-bit PCM stereo WAV with the same sample on both channels.
+    pub fn write_wav_samples(path: &Path, rate: u32, samples: &[i16]) {
+        let data_len = samples.len() as u32 * 4;
         let mut b = Vec::with_capacity(44 + data_len as usize);
         b.extend_from_slice(b"RIFF");
         b.extend_from_slice(&(36 + data_len).to_le_bytes());
@@ -266,9 +262,7 @@ pub mod tests {
         b.extend_from_slice(&16u16.to_le_bytes());
         b.extend_from_slice(b"data");
         b.extend_from_slice(&data_len.to_le_bytes());
-        for i in 0..frames {
-            let v =
-                ((i as f32 / rate as f32 * 440.0 * std::f32::consts::TAU).sin() * 16000.0) as i16;
+        for v in samples {
             b.extend_from_slice(&v.to_le_bytes());
             b.extend_from_slice(&v.to_le_bytes());
         }
@@ -293,7 +287,6 @@ pub mod tests {
         let p = dir.path().join("a.wav");
         write_wav(&p, 44_100, 1.0);
         let mut src = Source::open(&p, 44_100, 0.0).unwrap();
-        assert!((src.duration_secs() - 1.0).abs() < 0.01);
         assert_eq!(read_all(&mut src), 44_100);
     }
 

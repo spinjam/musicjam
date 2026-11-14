@@ -10,7 +10,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use super::output::{self, Output, TestTone, Volume};
 use super::source::Source;
-use super::transport::{Effect, Slot, Transport};
+use super::transport::{Effect, Slot, Transport, Which};
 
 /// Rendered per step: about 10 ms at 48 kHz.
 const BLOCK_FRAMES: usize = 512;
@@ -31,9 +31,14 @@ pub enum Command {
     },
     SetCrossfade(f32),
     LoadNext(Slot),
+    /// Empties deck B.
+    ClearNext,
     /// Straight onto deck A, paused; refused while A plays.
     LoadOnAir(Slot),
     SetStart(f32),
+    SetEnd(Which, f32),
+    /// Loudness normalization on or off.
+    SetNormalize(bool),
     TogglePreview,
     Play,
     Pause,
@@ -49,7 +54,11 @@ pub enum Command {
 
 enum CueCommand {
     SetDevice(Option<String>),
-    Start { path: PathBuf, start: f32 },
+    Start {
+        path: PathBuf,
+        start: f32,
+        gain: f32,
+    },
     Stop,
     TestTone,
     SetVolume(f32),
@@ -61,6 +70,7 @@ pub struct DeckInfo {
     pub pos: f32,
     pub duration: f32,
     pub start: f32,
+    pub end: f32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -79,6 +89,8 @@ pub struct Snapshot {
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
     State(Snapshot),
+    /// The track in deck B (by track id) has gone to the speakers.
+    NextOnAir(i64),
     PreviewPos(Option<f32>),
     /// The saved device is not connected.
     DeviceMissing(Role),
@@ -211,25 +223,28 @@ impl Master {
                 self.transport.crossfade_secs = secs.clamp(0.5, 30.0);
                 vec![]
             }
-            Command::LoadNext(mut slot) => {
-                real_duration(&mut slot);
-                self.transport.load_next(slot)
-            }
-            Command::LoadOnAir(mut slot) => {
-                real_duration(&mut slot);
-                match self.transport.load_on_air(slot) {
-                    Some(fx) => fx,
-                    None => {
-                        self.emit(EngineEvent::Error(
+            Command::LoadNext(slot) => self.transport.load_next(slot),
+            Command::ClearNext => self.transport.clear_next(),
+            Command::LoadOnAir(slot) => match self.transport.load_on_air(slot) {
+                Some(fx) => fx,
+                None => {
+                    self.emit(EngineEvent::Error(
                             "Il deck A sta suonando: mettilo in pausa o fermalo prima di caricarci un brano, \
                              oppure caricalo nel deck B e usa il crossfade."
                                 .into(),
                         ));
-                        vec![]
-                    }
+                    vec![]
                 }
-            }
+            },
             Command::SetStart(secs) => self.transport.set_start(secs),
+            Command::SetEnd(which, secs) => {
+                self.transport.set_end(which, secs);
+                vec![]
+            }
+            Command::SetNormalize(on) => {
+                self.transport.normalize = on;
+                vec![]
+            }
             Command::TogglePreview => self.transport.toggle_preview(),
             Command::Play if self.output.is_some() => self.transport.play(),
             Command::Crossfade if self.output.is_some() => self.transport.crossfade_now(),
@@ -315,10 +330,12 @@ impl Master {
                 }
                 Effect::StartPreview { slot } => {
                     let _ = self.cue.send(CueCommand::Start {
+                        gain: self.transport.level(&slot),
                         path: slot.path,
                         start: slot.start,
                     });
                 }
+                Effect::NextTaken { id } => self.emit(EngineEvent::NextOnAir(id)),
                 Effect::StopPreview => {
                     let _ = self.cue.send(CueCommand::Stop);
                 }
@@ -350,7 +367,10 @@ impl Master {
         }
         self.mix.fill(0.0);
         if playing {
-            let (g_on, g_in) = self.transport.gains();
+            let (mut g_on, mut g_in) = self.transport.gains();
+            let t = &self.transport;
+            g_on *= t.on_air.as_ref().map_or(1.0, |o| t.level(&o.slot));
+            g_in *= t.incoming.as_ref().map_or(1.0, |i| t.level(&i.slot));
             let mut ended = false;
             if let Some(src) = &mut self.on_air {
                 let n = src.read(&mut self.voice);
@@ -389,18 +409,21 @@ impl Master {
                 pos: o.pos,
                 duration: o.slot.duration,
                 start: o.slot.start,
+                end: o.slot.end,
             }),
             next: t.next.as_ref().map(|s| DeckInfo {
                 id: s.id,
                 pos: s.start,
                 duration: s.duration,
                 start: s.start,
+                end: s.end,
             }),
             incoming: t.incoming.as_ref().map(|i| DeckInfo {
                 id: i.slot.id,
                 pos: i.slot.start + i.elapsed,
                 duration: i.slot.duration,
                 start: i.slot.start,
+                end: i.slot.end,
             }),
             playing: t.playing,
             previewing: t.previewing,
@@ -414,16 +437,6 @@ impl Master {
 
     fn emit(&self, ev: EngineEvent) {
         let _ = self.events.send(ev);
-    }
-}
-
-/// The real length beats the tags': it decides when the auto crossfade has
-/// to start.
-fn real_duration(slot: &mut Slot) {
-    if let Ok(src) = Source::open(&slot.path, 44_100, 0.0)
-        && src.duration_secs() > 0.0
-    {
-        slot.duration = src.duration_secs();
     }
 }
 
@@ -450,7 +463,8 @@ fn open_cue(name: &str, events: &Sender<EngineEvent>) -> Option<Output> {
 fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sender<Command>) {
     let mut output: Option<Output> = None;
     let mut device: Option<String> = None;
-    let mut preview: Option<(Source, f32)> = None;
+    // The preview source, where it has got to, and its loudness gain.
+    let mut preview: Option<(Source, f32, f32)> = None;
     let mut tone: Option<TestTone> = None;
     let mut volume = Volume::new(1.0);
     let mut buf = vec![0.0f32; BLOCK_FRAMES * 2];
@@ -489,9 +503,9 @@ fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sen
                     }
                 };
             }
-            Some(CueCommand::Start { path, start }) => match &output {
+            Some(CueCommand::Start { path, start, gain }) => match &output {
                 Some(out) => match Source::open(&path, out.rate, start) {
-                    Ok(src) => preview = Some((src, start)),
+                    Ok(src) => preview = Some((src, start, gain)),
                     Err(e) => {
                         let _ = events.send(EngineEvent::Error(format!("{e:#}")));
                         let _ = master.send(Command::PreviewEnded);
@@ -529,8 +543,10 @@ fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sen
         let mut rendered = false;
         while (preview.is_some() || tone.is_some()) && out.free_frames() >= BLOCK_FRAMES {
             buf.fill(0.0);
-            if let Some((src, pos)) = &mut preview {
+            if let Some((src, pos, gain)) = &mut preview {
                 let n = src.read(&mut buf);
+                let gain = *gain;
+                buf.iter_mut().for_each(|s| *s *= gain);
                 *pos += n as f32 / out.rate as f32;
                 if n < BLOCK_FRAMES {
                     preview = None;
@@ -547,7 +563,7 @@ fn cue_thread(rx: Receiver<CueCommand>, events: Sender<EngineEvent>, master: Sen
             out.push(&buf);
             rendered = true;
         }
-        if let Some((_, pos)) = &preview
+        if let Some((_, pos, _)) = &preview
             && last_pos.elapsed() >= SNAPSHOT_EVERY
         {
             last_pos = Instant::now();

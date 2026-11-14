@@ -1,4 +1,6 @@
 mod render;
+mod setlist;
+mod setlist_view;
 pub mod theme;
 
 use std::collections::{HashMap, HashSet};
@@ -15,13 +17,15 @@ use gpui_component::input::{InputEvent, InputState};
 use gpui_component::resizable::ResizableState;
 use gpui_component::slider::{SliderEvent, SliderState};
 
+use crate::audio::analysis::Analysis;
 use crate::audio::engine::{Command, Engine, EngineEvent, Role, Snapshot};
-use crate::audio::transport::Slot;
-use crate::audio::{output, waveform};
+use crate::audio::output;
 use crate::library::search::Index;
 use crate::library::tree::{self, FolderNode};
 use crate::library::{Library, ScanReport, Track};
+use crate::playlist::Playlist;
 use crate::settings::{self, Settings};
+use crate::store::{SavedList, Store};
 use theme::{Appearance, Theme};
 
 pub const WAVE_BARS: usize = 160;
@@ -56,10 +60,32 @@ impl SettingsTab {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Deck {
     OnAir,
     Next,
+}
+
+/// What the modal over the window is asking.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Dialog {
+    /// A name for the setlist: to save it as a new one, or to rename a
+    /// saved one. `then` runs after a save.
+    Name {
+        rename: Option<i64>,
+        then: Option<Then>,
+    },
+    /// The open setlist has unsaved changes and is about to be replaced.
+    Unsaved(Then),
+    ConfirmDelete(SavedList),
+    /// The saved setlists, to open one.
+    Open,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Then {
+    Open(i64),
+    New,
 }
 
 pub struct Workspace {
@@ -71,6 +97,7 @@ pub struct Workspace {
     scanning: bool,
     tracks: Arc<Vec<Track>>,
     by_id: HashMap<i64, usize>,
+    by_path: HashMap<PathBuf, usize>,
     index: Arc<Index>,
     tree: Option<FolderNode>,
     expanded: HashSet<PathBuf>,
@@ -83,8 +110,26 @@ pub struct Workspace {
     engine: Engine,
     snapshot: Snapshot,
     preview_pos: Option<f32>,
-    waves: HashMap<i64, Arc<Vec<f32>>>,
-    waves_pending: HashSet<i64>,
+    store: Option<Store>,
+    analyses: HashMap<PathBuf, Arc<Analysis>>,
+    /// Waiting to be analysed, and how many run now.
+    analysis_queue: std::collections::VecDeque<PathBuf>,
+    analysis_waiters: HashMap<PathBuf, Vec<setlist::Waiter>>,
+    analysing: usize,
+    /// Queued or running.
+    analysis_inflight: HashSet<PathBuf>,
+    /// The latest load asked of each deck; an older one finishing its
+    /// analysis later is dropped.
+    load_seq: u64,
+    pending_load: [Option<u64>; 2],
+    playlist: Playlist,
+    saved_lists: Vec<SavedList>,
+    setlist_cursor: Option<u64>,
+    setlist_focus: FocusHandle,
+    dialog: Option<Dialog>,
+    dialog_error: Option<String>,
+    name_input: Entity<InputState>,
+    center_split: Entity<ResizableState>,
     alerts: Vec<SharedString>,
     show_settings: bool,
     settings_tab: SettingsTab,
@@ -115,6 +160,10 @@ impl Workspace {
             |this, _, event: &InputEvent, _window, cx| match event {
                 InputEvent::Change => this.run_query(cx),
                 InputEvent::PressEnter {
+                    secondary: true,
+                    shift: true,
+                } => this.add_selected_to_setlist(cx),
+                InputEvent::PressEnter {
                     secondary: true, ..
                 } => this.engine.send(Command::Crossfade),
                 InputEvent::PressEnter { .. } => this.load_selected(cx),
@@ -140,11 +189,32 @@ impl Workspace {
 
         engine.send(Command::SetVolume(Role::Master, settings.master_volume));
         engine.send(Command::SetVolume(Role::Cue, settings.cue_volume));
+        engine.send(Command::SetNormalize(settings.normalize));
+        let name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Nome della scaletta"));
+        cx.subscribe_in(
+            &name_input,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.confirm_name(window, cx);
+                }
+            },
+        )
+        .detach();
         let master_volume = Self::volume_slider(Role::Master, settings.master_volume, cx);
         let cue_volume = Self::volume_slider(Role::Cue, settings.cue_volume, cx);
 
         let mut alerts = Vec::new();
-        let library = match Library::open(&settings::support_dir().join("library.sqlite")) {
+        let db = settings::support_dir().join("library.sqlite");
+        let store = match Store::open(&db) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                alerts.push(format!("Impossibile aprire le scalette salvate: {e}").into());
+                None
+            }
+        };
+        let library = match Library::open(&db) {
             Ok(lib) => Some(lib),
             Err(e) => {
                 alerts.push(format!("Impossibile aprire l'indice della libreria: {e}").into());
@@ -160,6 +230,7 @@ impl Workspace {
             scanning: false,
             tracks: Arc::default(),
             by_id: HashMap::new(),
+            by_path: HashMap::new(),
             index: Arc::new(Index::new(&[])),
             tree: None,
             expanded: HashSet::new(),
@@ -171,8 +242,22 @@ impl Workspace {
             engine,
             snapshot: Snapshot::default(),
             preview_pos: None,
-            waves: HashMap::new(),
-            waves_pending: HashSet::new(),
+            store,
+            analyses: HashMap::new(),
+            analysis_queue: Default::default(),
+            analysis_waiters: HashMap::new(),
+            analysing: 0,
+            analysis_inflight: HashSet::new(),
+            load_seq: 0,
+            pending_load: [None, None],
+            playlist: settings::load_session().unwrap_or_default(),
+            saved_lists: Vec::new(),
+            setlist_cursor: None,
+            setlist_focus: cx.focus_handle(),
+            dialog: None,
+            dialog_error: None,
+            name_input,
+            center_split: cx.new(|_| ResizableState::default()),
             alerts,
             show_settings: false,
             settings_tab: SettingsTab::Library,
@@ -182,6 +267,7 @@ impl Workspace {
             cue_volume,
         };
         this.refresh_tracks(cx);
+        this.resume_session(cx);
         this.rescan(cx);
         this.poll_engine(events, cx);
         this
@@ -210,6 +296,7 @@ impl Workspace {
         for event in batch {
             match event {
                 EngineEvent::State(s) => self.snapshot = s,
+                EngineEvent::NextOnAir(id) => self.next_went_on_air(id, cx),
                 EngineEvent::PreviewPos(p) => self.preview_pos = p,
                 EngineEvent::DeviceLost(Role::Cue) => {
                     self.alert("Cuffia scollegata: anteprima fermata. Le casse continuano.")
@@ -240,17 +327,14 @@ impl Workspace {
         if !self.snapshot.previewing {
             self.preview_pos = None;
         }
-        let ids: Vec<i64> = [
-            &self.snapshot.on_air,
-            &self.snapshot.next,
-            &self.snapshot.incoming,
-        ]
-        .into_iter()
-        .flatten()
-        .map(|d| d.id)
-        .collect();
-        for id in ids {
-            self.ensure_wave(id, cx);
+        // Deck A emptied (stop, end of the setlist, device lost): the entry
+        // that was on it is done.
+        if self.snapshot.on_air.is_none()
+            && self.snapshot.incoming.is_none()
+            && self.playlist.on_air.is_some()
+        {
+            self.playlist.leave_air();
+            self.playlist_changed(cx);
         }
         cx.notify();
     }
@@ -263,27 +347,6 @@ impl Workspace {
         if self.alerts.len() > 4 {
             self.alerts.remove(0);
         }
-    }
-
-    fn ensure_wave(&mut self, id: i64, cx: &mut Context<Self>) {
-        if self.waves.contains_key(&id) || !self.waves_pending.insert(id) {
-            return;
-        }
-        let Some(path) = self.track(id).map(|t| t.path.clone()) else {
-            return;
-        };
-        let task = cx
-            .background_executor()
-            .spawn(async move { waveform::peaks(&path, WAVE_BARS) });
-        cx.spawn(async move |this, cx| {
-            let peaks = task.await.unwrap_or_else(|_| vec![0.0; WAVE_BARS]);
-            let _ = this.update(cx, |this, cx| {
-                this.waves_pending.remove(&id);
-                this.waves.insert(id, Arc::new(peaks));
-                cx.notify();
-            });
-        })
-        .detach();
     }
 
     pub(crate) fn track(&self, id: i64) -> Option<&Track> {
@@ -335,6 +398,11 @@ impl Workspace {
             .cloned()
             .collect();
         self.by_id = tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
+        self.by_path = tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.path.clone(), i))
+            .collect();
         self.index = Arc::new(Index::new(&tracks));
         self.tree = root.as_ref().map(|r| tree::build(r, &tracks));
         if let Some(r) = &root {
@@ -407,19 +475,28 @@ impl Workspace {
         let Some(&ix) = self.cursor.and_then(|c| self.results.get(c)) else {
             return;
         };
-        let t = &self.tracks[ix];
-        let slot = Slot {
-            id: t.id,
-            path: t.path.clone(),
-            duration: t.duration_secs,
-            start: 0.0,
-        };
-        self.engine.send(match deck {
-            Deck::OnAir => Command::LoadOnAir(slot),
-            Deck::Next => Command::LoadNext(slot),
-        });
-        self.ensure_wave(t.id, cx);
-        cx.notify();
+        let path = self.tracks[ix].path.clone();
+        match deck {
+            // Into B always goes through the setlist: it is the queue.
+            Deck::Next => {
+                let uid = self.playlist.insert_as_next(path);
+                self.playlist_changed(cx);
+                self.load_entry(uid, Deck::Next, cx);
+            }
+            Deck::OnAir => {
+                if !self.deck_a_free() {
+                    self.alert(
+                        "Il deck A sta suonando: mettilo in pausa o fermalo prima di caricarci un brano, \
+                         oppure caricalo nel deck B e usa il crossfade.",
+                    );
+                    cx.notify();
+                    return;
+                }
+                self.playlist.leave_air();
+                self.playlist_changed(cx);
+                self.load_path(path, None, Deck::OnAir, cx);
+            }
+        }
     }
 
     // Decks
@@ -446,27 +523,40 @@ impl Workspace {
         self.engine.send(Command::TogglePreview);
     }
 
-    pub(crate) fn nudge(&mut self, by: f32) {
+    pub(crate) fn nudge(&mut self, by: f32, cx: &mut Context<Self>) {
         if let Some(next) = &self.snapshot.next {
-            self.engine.send(Command::SetStart(next.start + by));
+            self.set_start(next.start + by, cx);
+        }
+    }
+
+    pub(crate) fn nudge_end(&mut self, by: f32, cx: &mut Context<Self>) {
+        if let Some(next) = &self.snapshot.next {
+            self.set_end(Deck::Next, next.end + by, cx);
         }
     }
 
     /// A click on bar `bar` of a deck's waveform: seek what is on air, or set
-    /// where Next will start.
-    pub(crate) fn click_wave(&mut self, deck: Deck, bar: usize) {
+    /// where Next will start. With shift, it sets where the track ends.
+    pub(crate) fn click_wave(
+        &mut self,
+        deck: Deck,
+        bar: usize,
+        shift: bool,
+        cx: &mut Context<Self>,
+    ) {
         let frac = (bar as f32 + 0.5) / WAVE_BARS as f32;
-        match deck {
-            Deck::OnAir => {
-                if let Some(on) = &self.snapshot.on_air {
-                    self.engine.send(Command::Seek(on.duration * frac));
-                }
-            }
-            Deck::Next => {
-                if let Some(next) = &self.snapshot.next {
-                    self.engine.send(Command::SetStart(next.duration * frac));
-                }
-            }
+        let s = &self.snapshot;
+        let info = match deck {
+            Deck::OnAir => s.incoming.as_ref().or(s.on_air.as_ref()),
+            Deck::Next => s.next.as_ref(),
+        };
+        let Some(at) = info.map(|i| i.duration * frac) else {
+            return;
+        };
+        match (deck, shift) {
+            (_, true) => self.set_end(deck, at, cx),
+            (Deck::OnAir, false) => self.engine.send(Command::Seek(at)),
+            (Deck::Next, false) => self.set_start(at, cx),
         }
     }
 
@@ -540,6 +630,14 @@ impl Workspace {
         self.theme = theme;
         self.settings.theme = Some(theme.name.to_string());
         theme.apply_to_components(cx);
+        self.save_settings();
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_normalize(&mut self, cx: &mut Context<Self>) {
+        self.settings.normalize = !self.settings.normalize;
+        self.engine
+            .send(Command::SetNormalize(self.settings.normalize));
         self.save_settings();
         cx.notify();
     }

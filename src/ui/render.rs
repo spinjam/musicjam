@@ -9,11 +9,11 @@ use gpui::{
 };
 use gpui_component::input::Input;
 use gpui_component::menu::{ContextMenuExt, PopupMenuItem};
-use gpui_component::resizable::{h_resizable, resizable_panel};
+use gpui_component::resizable::{h_resizable, resizable_panel, v_resizable};
 use gpui_component::slider::{Slider, SliderState};
 
 use super::theme::{CHROME_FONT, DISPLAY_FONT, Palette, RADIUS, Theme};
-use super::{Deck, SettingsTab, WAVE_BARS, Workspace};
+use super::{Deck, Dialog, SettingsTab, Then, WAVE_BARS, Workspace};
 use crate::actions::*;
 use crate::audio::engine::{Command, DeckInfo, Role};
 
@@ -21,32 +21,44 @@ const TREE_WIDTH: f32 = 230.;
 const TREE_RANGE: (f32, f32) = (150., 480.);
 const DECKS_WIDTH: f32 = 380.;
 const DECKS_RANGE: (f32, f32) = (320., 640.);
-const ROW_HEIGHT: f32 = 30.;
+pub(super) const ROW_HEIGHT: f32 = 30.;
+const SETLIST_HEIGHT: f32 = 300.;
 const WAVE_HEIGHT: f32 = 64.;
 
 /// The shortcuts tab: the same keys `actions::bindings` binds.
-const KEYS: [(&str, &str); 12] = [
+const KEYS: [(&str, &str); 20] = [
     ("⌘F", "Cerca"),
     ("↑ ↓", "Scegli un brano"),
-    ("Invio / doppio clic", "Carica nel deck B"),
+    (
+        "Invio / doppio clic",
+        "Carica nel deck B (entra nella scaletta)",
+    ),
+    ("⌘⇧Invio", "Aggiungi in fondo alla scaletta"),
     ("⌘P", "Play / pausa del deck A"),
     ("⌘.", "Stop"),
     ("⌘E", "Anteprima in cuffia (cue)"),
     ("⌘Invio", "Crossfade A → B"),
     ("⌥← ⌥→", "Punto di partenza ±1 s"),
     ("⌥⇧← ⌥⇧→", "Punto di partenza ±0,1 s"),
+    ("⌥⌘← ⌥⌘→", "Fine del deck B ±1 s"),
+    ("⇧ clic sull'onda", "Fine del brano (deck A o B)"),
+    ("⌘S / ⌘⇧S", "Salva / salva come la scaletta"),
+    ("⌘N", "Nuova scaletta"),
+    ("Scaletta: ↑ ↓ / Invio", "Scegli / carica nel deck B"),
+    ("Scaletta: ⌫", "Togli dalla scaletta"),
+    ("Scaletta: ⌥⌘↑ ⌥⌘↓", "Sposta su / giù"),
     ("⌘R", "Aggiorna la libreria"),
     ("⌘T", "Tema successivo"),
     ("⌘,  /  Esc", "Apri / chiudi le impostazioni"),
 ];
 
-fn clock(secs: f32) -> String {
+pub(super) fn clock(secs: f32) -> String {
     let s = secs.max(0.0) as u32;
     format!("{}:{:02}", s / 60, s % 60)
 }
 
 /// Small caps of the booth: every label reads like it is printed on a mixer.
-fn caps(text: impl Into<SharedString>, color: Hsla) -> Div {
+pub(super) fn caps(text: impl Into<SharedString>, color: Hsla) -> Div {
     div()
         .font_family(DISPLAY_FONT)
         .text_size(px(10.5))
@@ -55,7 +67,11 @@ fn caps(text: impl Into<SharedString>, color: Hsla) -> Div {
         .child(text.into())
 }
 
-fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, p: Palette) -> Stateful<Div> {
+pub(super) fn button(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    p: Palette,
+) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
@@ -76,7 +92,7 @@ fn button(id: impl Into<ElementId>, label: impl Into<SharedString>, p: Palette) 
         .child(label.into())
 }
 
-fn filled(
+pub(super) fn filled(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     color: Hsla,
@@ -123,7 +139,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
             .on_action(cx.listener(|this, _: &OpenSettings, _, cx| this.open_settings(cx)))
             .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
-                if this.show_settings {
+                if this.dialog.is_some() {
+                    this.close_dialog(window, cx);
+                } else if this.show_settings {
                     this.close_settings(window, cx);
                 } else {
                     this.alerts.clear();
@@ -140,10 +158,33 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &Stop, _, _| this.send(Command::Stop)))
             .on_action(cx.listener(|this, _: &TogglePreview, _, cx| this.toggle_preview(cx)))
             .on_action(cx.listener(|this, _: &Crossfade, _, _| this.send(Command::Crossfade)))
-            .on_action(cx.listener(|this, _: &NudgeBack, _, _| this.nudge(-1.0)))
-            .on_action(cx.listener(|this, _: &NudgeForward, _, _| this.nudge(1.0)))
-            .on_action(cx.listener(|this, _: &NudgeBackFine, _, _| this.nudge(-0.1)))
-            .on_action(cx.listener(|this, _: &NudgeForwardFine, _, _| this.nudge(0.1)))
+            .on_action(cx.listener(|this, _: &NudgeBack, _, cx| this.nudge(-1.0, cx)))
+            .on_action(cx.listener(|this, _: &NudgeForward, _, cx| this.nudge(1.0, cx)))
+            .on_action(cx.listener(|this, _: &NudgeBackFine, _, cx| this.nudge(-0.1, cx)))
+            .on_action(cx.listener(|this, _: &NudgeForwardFine, _, cx| this.nudge(0.1, cx)))
+            .on_action(cx.listener(|this, _: &NudgeEndBack, _, cx| this.nudge_end(-1.0, cx)))
+            .on_action(cx.listener(|this, _: &NudgeEndForward, _, cx| this.nudge_end(1.0, cx)))
+            .on_action(
+                cx.listener(|this, _: &AddToSetlist, _, cx| this.add_selected_to_setlist(cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SaveSetlist, window, cx| {
+                    this.save_setlist(None, window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &SaveSetlistAs, window, cx| {
+                this.show_dialog(
+                    Dialog::Name {
+                        rename: None,
+                        then: None,
+                    },
+                    window,
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &NewSetlist, window, cx| {
+                this.replace_setlist(Then::New, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &Rescan, _, cx| this.rescan(cx)))
             .on_action(cx.listener(|this, _: &CycleTheme, _, cx| this.cycle_theme(cx)))
             .child(
@@ -155,7 +196,19 @@ impl Render for Workspace {
                             .size_range(px(TREE_RANGE.0)..px(TREE_RANGE.1))
                             .child(self.render_tree(p, cx)),
                     )
-                    .child(resizable_panel().child(self.render_list(p, cx)))
+                    .child(
+                        resizable_panel().child(
+                            v_resizable("center")
+                                .with_state(&self.center_split)
+                                .child(resizable_panel().child(self.render_list(p, cx)))
+                                .child(
+                                    resizable_panel()
+                                        .size(px(SETLIST_HEIGHT))
+                                        .size_range(px(120.)..px(900.))
+                                        .child(self.render_setlist(p, cx)),
+                                ),
+                        ),
+                    )
                     .child(
                         resizable_panel()
                             .size(px(DECKS_WIDTH))
@@ -164,6 +217,9 @@ impl Render for Workspace {
                     ),
             )
             .when(self.show_settings, |d| d.child(self.render_settings(p, cx)))
+            .when_some(self.dialog.clone(), |d, dialog| {
+                d.child(self.render_dialog(dialog, p, cx))
+            })
     }
 }
 
@@ -370,7 +426,7 @@ impl Workspace {
                     .pb_2()
                     .child(caps(crumb, p.muted))
                     .child(caps(
-                        format!("{count} BRANI · DOPPIO CLIC / INVIO → DECK B"),
+                        format!("{count} BRANI · INVIO → DECK B · ⌘⇧INVIO → SCALETTA"),
                         p.muted,
                     )),
             )
@@ -497,8 +553,19 @@ impl Workspace {
                                             ws.update(cx, |this, cx| this.load_row(row, deck, cx));
                                     })
                                 };
+                                let ws2 = ws.clone();
                                 menu.item(load("Carica nel Deck A (casse)", Deck::OnAir))
                                     .item(load("Carica nel Deck B (cuffia)", Deck::Next))
+                                    .separator()
+                                    .item(PopupMenuItem::new("Aggiungi alla scaletta").on_click(
+                                        move |_, _, cx| {
+                                            let _ = ws2.update(cx, |this, cx| {
+                                                if let Some(&ix) = this.results.get(row) {
+                                                    this.add_to_setlist(ix, cx);
+                                                }
+                                            });
+                                        },
+                                    ))
                             }
                         })
                         .into_any_element(),
@@ -585,7 +652,9 @@ impl Workspace {
                 p,
             )));
 
-        let next_state = if s.previewing {
+        let next_state = if self.loading(Deck::Next) {
+            "ANALISI…"
+        } else if s.previewing {
             "CUE ●"
         } else if s.next.is_some() {
             "PRONTO"
@@ -620,14 +689,14 @@ impl Workspace {
                         ),
                     )
                     .child(
-                        button("nudge-back", "◀ 1S", p)
-                            .h(px(38.))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.nudge(-1.0))),
+                        button("nudge-back", "◀ 1S", p).h(px(38.)).on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.nudge(-1.0, cx)),
+                        ),
                     )
                     .child(
-                        button("nudge-fwd", "1S ▶", p)
-                            .h(px(38.))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.nudge(1.0))),
+                        button("nudge-fwd", "1S ▶", p).h(px(38.)).on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.nudge(1.0, cx)),
+                        ),
                     ),
             )
             .child(
@@ -674,7 +743,7 @@ impl Workspace {
             .on_air
             .as_ref()
             .filter(|_| self.snapshot.next.is_some())
-            .map(|on| (on.duration - on.pos - self.settings.crossfade_secs).max(0.0));
+            .map(|on| (on.end.min(on.duration) - on.pos - self.settings.crossfade_secs).max(0.0));
         let hint = match (fade, auto_in) {
             (Some(_), _) => "IN CORSO…".to_string(),
             (None, Some(t)) => format!("AUTO TRA {}", clock(t)),
@@ -828,9 +897,8 @@ impl Workspace {
             );
 
         let peaks = self
-            .waves
-            .get(&info.id)
-            .cloned()
+            .peaks_of(info.id)
+            .map(|a| Arc::new(a.peaks.clone()))
             .unwrap_or_else(|| Arc::new(vec![0.05; WAVE_BARS]));
         let (head, marker) = match deck {
             Deck::OnAir => (Some(info.pos / dur), None),
@@ -839,6 +907,8 @@ impl Workspace {
         let bar_of = |f: f32| ((f * WAVE_BARS as f32) as usize).min(WAVE_BARS - 1);
         let head_bar = head.map(bar_of);
         let marker_bar = marker.map(bar_of);
+        // Past the end point nothing is heard.
+        let end_bar = (info.end < info.duration - 0.05).then(|| bar_of(info.end / dur));
         let (lit, dim) = match deck {
             Deck::OnAir => (p.live, p.live_dim),
             Deck::Next => (p.cue, p.cue_dim),
@@ -850,6 +920,7 @@ impl Workspace {
                 // Played part bright, the rest dim; on deck B what comes
                 // before the start point is skipped, so it stays grey.
                 let fill = match deck {
+                    _ if end_bar.is_some_and(|e| i > e) => p.wave,
                     Deck::OnAir if head_bar.is_some_and(|h| i <= h) => lit,
                     Deck::OnAir => dim,
                     Deck::Next if marker_bar.is_some_and(|m| i < m) => p.wave,
@@ -867,6 +938,8 @@ impl Workspace {
                     .relative()
                     .flex_1()
                     .h_full()
+                    // The gap between bars is padding, so it takes clicks too.
+                    .px(px(0.5))
                     .flex()
                     .items_center()
                     .cursor_pointer()
@@ -877,24 +950,27 @@ impl Workspace {
                     .when(marker_bar == Some(i), |d| {
                         d.child(div().absolute().left_0().w(px(3.)).h_full().bg(color))
                     })
+                    .when(end_bar == Some(i), |d| {
+                        d.child(div().absolute().right_0().w(px(3.)).h_full().bg(p.text))
+                    })
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, _, _, _| this.click_wave(deck, i)),
+                        cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                            this.click_wave(deck, i, ev.modifiers.shift, cx)
+                        }),
                     )
                     .into_any_element()
             })
             .collect();
         let wave = div()
             .h(px(WAVE_HEIGHT + 8.))
-            .px_1()
             .flex()
-            .gap(px(1.))
             .bg(p.bg)
             .rounded(px(RADIUS))
             .children(bars);
         let help = match deck {
-            Deck::OnAir => "CLIC SULL'ONDA = SALTA",
-            Deck::Next => "CLIC SULL'ONDA = PUNTO DI PARTENZA · ⌥← ⌥→",
+            Deck::OnAir => "CLIC = SALTA · ⇧CLIC = FINE",
+            Deck::Next => "CLIC = PARTENZA · ⇧CLIC = FINE · ⌥← ⌥→",
         };
         card.child(body.child(readout).child(wave).child(caps(help, p.muted)))
     }
@@ -1155,7 +1231,27 @@ impl Workspace {
                                             ))),
                                     )
                                     .child(div().text_color(p.muted).text_size(px(12.)).child(
-                                        "Vale per il pulsante Crossfade e per il passaggio automatico, che parte da solo in modo da finire insieme al brano in onda.",
+                                        "Vale per il pulsante Crossfade e per il passaggio automatico, che parte da solo in modo da finire sulla fine del brano in onda: l'ultimo suono, o la fine scelta con ⇧clic.",
+                                    ))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .pt_3()
+                                            .child(caps("VOLUME UNIFORME", p.muted).flex_1())
+                                            .child(
+                                                if self.settings.normalize {
+                                                    filled("normalize", "ACCESO", p.cue, p)
+                                                } else {
+                                                    button("normalize", "SPENTO", p)
+                                                }
+                                                .w(px(96.))
+                                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_normalize(cx))),
+                                            ),
+                                    )
+                                    .child(div().text_color(p.muted).text_size(px(12.)).child(
+                                        "Porta ogni brano allo stesso volume percepito (−14 LUFS, misurato quando il brano entra in un deck), senza mai superarne il picco. Vale per casse e cuffia.",
                                     ))
                                     .into_any_element(),
                                 SettingsTab::Look => div()

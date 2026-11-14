@@ -11,6 +11,19 @@ pub struct Slot {
     pub duration: f32,
     /// Where the track starts when it goes on air, in seconds.
     pub start: f32,
+    /// Where it is over: the auto crossfade ends here, and with nothing
+    /// next the player stops here instead of playing a silent tail.
+    pub end: f32,
+    /// Linear gain that evens out loudness between tracks.
+    pub gain: f32,
+}
+
+/// Which deck a command is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Which {
+    /// What the speakers hear: the incoming track while a crossfade runs.
+    OnAir,
+    Next,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,6 +60,10 @@ pub enum Effect {
         slot: Slot,
     },
     StopPreview,
+    /// Next has left deck B for the speakers (crossfade or play).
+    NextTaken {
+        id: i64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +74,8 @@ pub struct Transport {
     pub incoming: Option<Incoming>,
     pub playing: bool,
     pub previewing: bool,
+    /// Loudness gains are applied; off, every track plays as recorded.
+    pub normalize: bool,
 }
 
 impl Transport {
@@ -68,11 +87,18 @@ impl Transport {
             incoming: None,
             playing: false,
             previewing: false,
+            normalize: true,
         }
     }
 
     pub fn load_next(&mut self, slot: Slot) -> Vec<Effect> {
         self.next = Some(slot);
+        self.stop_preview()
+    }
+
+    /// Empties deck B (and stops its preview).
+    pub fn clear_next(&mut self) -> Vec<Effect> {
+        self.next = None;
         self.stop_preview()
     }
 
@@ -98,6 +124,7 @@ impl Transport {
             return vec![];
         };
         next.start = secs.clamp(0.0, (next.duration - 0.5).max(0.0));
+        next.end = next.end.max((next.start + 0.5).min(next.duration));
         if self.previewing {
             vec![Effect::StartPreview { slot: next.clone() }]
         } else {
@@ -127,6 +154,7 @@ impl Transport {
             return vec![];
         };
         let mut fx = self.stop_preview();
+        fx.push(Effect::NextTaken { id: slot.id });
         fx.push(Effect::StartOnAir {
             slot: slot.clone(),
             at: slot.start,
@@ -177,7 +205,7 @@ impl Transport {
             return vec![];
         };
         on.pos += dt;
-        let remaining = on.slot.duration - on.pos;
+        let remaining = on.slot.end.min(on.slot.duration) - on.pos;
 
         if let Some(inc) = &mut self.incoming {
             inc.elapsed += dt;
@@ -210,6 +238,22 @@ impl Transport {
 
     /// Gains of the on-air and incoming voices: equal power, so the sum
     /// sounds as loud mid-fade as either track alone.
+    /// Moves where a deck's track is over. On air, the auto crossfade
+    /// follows; a running crossfade is left alone.
+    pub fn set_end(&mut self, which: Which, secs: f32) {
+        let slot = match which {
+            Which::Next => self.next.as_mut(),
+            Which::OnAir => match &mut self.incoming {
+                Some(_) => None,
+                None => self.on_air.as_mut().map(|o| &mut o.slot),
+            },
+        };
+        if let Some(slot) = slot {
+            slot.end = secs.clamp((slot.start + 0.5).min(slot.duration), slot.duration);
+        }
+    }
+
+    /// The crossfade gains of the on-air and incoming voices.
     pub fn gains(&self) -> (f32, f32) {
         match &self.incoming {
             Some(inc) => {
@@ -220,6 +264,11 @@ impl Transport {
         }
     }
 
+    /// A track's own loudness gain, or unity with normalization off.
+    pub fn level(&self, slot: &Slot) -> f32 {
+        if self.normalize { slot.gain } else { 1.0 }
+    }
+
     fn begin_crossfade(&mut self, fade_len: f32) -> Vec<Effect> {
         if self.incoming.is_some() {
             return vec![];
@@ -228,6 +277,7 @@ impl Transport {
             return vec![];
         };
         let mut fx = self.stop_preview();
+        fx.push(Effect::NextTaken { id: slot.id });
         fx.push(Effect::StartIncoming { slot: slot.clone() });
         self.incoming = Some(Incoming {
             slot,
@@ -267,6 +317,8 @@ mod tests {
             path: format!("/m/{id}.flac").into(),
             duration,
             start,
+            end: duration,
+            gain: 1.0,
         }
     }
 
@@ -292,10 +344,13 @@ mod tests {
         let fx = t.play();
         assert_eq!(
             fx,
-            [Effect::StartOnAir {
-                slot: slot(1, 100.0, 12.0),
-                at: 12.0
-            }]
+            [
+                Effect::NextTaken { id: 1 },
+                Effect::StartOnAir {
+                    slot: slot(1, 100.0, 12.0),
+                    at: 12.0
+                }
+            ]
         );
         assert!(t.next.is_none() && t.playing && t.incoming.is_none());
     }
@@ -404,5 +459,66 @@ mod tests {
             at: 7.0
         }));
         assert!(t.playing);
+    }
+
+    #[test]
+    fn auto_crossfade_ends_on_end_point_not_end_of_file() {
+        let mut t = on_air_from(Slot {
+            end: 50.0,
+            ..slot(1, 60.0, 0.0)
+        });
+        t.load_next(slot(2, 200.0, 0.0));
+        assert!(run(&mut t, 44.9).is_empty());
+        let fx = run(&mut t, 0.2);
+        assert!(fx.contains(&Effect::NextTaken { id: 2 }));
+        let fx = run(&mut t, 5.0);
+        assert!(fx.contains(&Effect::FinishCrossfade));
+    }
+
+    #[test]
+    fn stops_at_end_point_when_next_empty() {
+        let mut t = on_air_from(Slot {
+            end: 8.0,
+            ..slot(1, 10.0, 0.0)
+        });
+        assert!(!run(&mut t, 7.9).contains(&Effect::StopAll));
+        assert!(run(&mut t, 0.2).contains(&Effect::StopAll));
+    }
+
+    #[test]
+    fn set_end_moves_the_auto_crossfade_and_stays_after_start() {
+        let mut t = on_air_from(slot(1, 100.0, 10.0));
+        t.load_next(slot(2, 100.0, 0.0));
+        t.set_end(Which::OnAir, 40.0);
+        assert!(run(&mut t, 24.0).is_empty());
+        assert!(run(&mut t, 1.1).contains(&Effect::NextTaken { id: 2 }));
+
+        t.set_end(Which::Next, -3.0);
+        let mut t = Transport::new(5.0);
+        t.load_next(slot(3, 100.0, 20.0));
+        t.set_end(Which::Next, 5.0);
+        assert_eq!(t.next.as_ref().unwrap().end, 20.5);
+        t.set_start(90.0);
+        t.set_end(Which::Next, 500.0);
+        assert_eq!(t.next.as_ref().unwrap().end, 100.0);
+    }
+
+    #[test]
+    fn crossfade_reports_next_taken() {
+        let mut t = on_air_from(slot(1, 300.0, 0.0));
+        t.load_next(slot(7, 300.0, 0.0));
+        assert!(t.crossfade_now().contains(&Effect::NextTaken { id: 7 }));
+    }
+
+    #[test]
+    fn level_follows_normalize() {
+        let mut t = Transport::new(5.0);
+        let s = Slot {
+            gain: 0.5,
+            ..slot(1, 10.0, 0.0)
+        };
+        assert_eq!(t.level(&s), 0.5);
+        t.normalize = false;
+        assert_eq!(t.level(&s), 1.0);
     }
 }

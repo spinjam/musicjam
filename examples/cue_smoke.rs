@@ -20,11 +20,14 @@ fn main() {
         cue: Some(cue),
     });
     engine.send(Command::SetVolume(Role::Cue, 0.4));
+    let a = audio::analysis::analyse(path.as_ref(), 10).expect("readable file");
     engine.send(Command::LoadNext(Slot {
         id: 1,
         path: path.into(),
-        duration: 0.0,
-        start: 0.0,
+        duration: a.duration,
+        start: a.sound_start,
+        end: a.sound_end,
+        gain: a.gain(),
     }));
     engine.send(Command::TogglePreview);
     let until = Instant::now() + Duration::from_secs(2);

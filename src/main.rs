@@ -1,7 +1,9 @@
 mod actions;
 mod audio;
 mod library;
+mod playlist;
 mod settings;
+mod store;
 mod ui;
 
 use gpui::{
